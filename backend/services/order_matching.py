@@ -22,7 +22,7 @@ def _calc_commission(notional: Decimal) -> Decimal:
     return max(pct_fee, min_fee)
 
 
-def create_order(db: Session, account: Account, symbol: str, name: str, market: str, 
+def create_order(db: Session, account: Account, symbol: str, name: str, market: str,
                 side: str, order_type: str, price: Optional[float], quantity: float) -> Order:
     """
     Create limit order
@@ -47,7 +47,7 @@ def create_order(db: Session, account: Account, symbol: str, name: str, market: 
     # Basic parameter validation
     if market not in ["CRYPTO"]:
         raise ValueError("Only cryptocurrency market supported")
-    
+
     # For crypto, we support fractional quantities, so no lot size validation needed
     # if quantity % CRYPTO_LOT_SIZE != 0:
     #     raise ValueError(f"Order quantity must be integer multiple of {CRYPTO_LOT_SIZE}")
@@ -58,7 +58,7 @@ def create_order(db: Session, account: Account, symbol: str, name: str, market: 
 
     if order_type == "LIMIT" and (price is None or price <= 0):
         raise ValueError("Limit order must specify valid order price")
-    
+
     # Get current market price for fund validation (only when cookie is configured)
     current_market_price = None
     if order_type == "MARKET":
@@ -73,14 +73,22 @@ def create_order(db: Session, account: Account, symbol: str, name: str, market: 
         check_price = Decimal(str(price))
 
     # Pre-check funds and positions
+    cash_frozen = Decimal('0')  # Track frozen amount for rollback if needed
+
     if side == "BUY":
         # Buy: check if sufficient cash available
         notional = check_price * Decimal(quantity)
         commission = _calc_commission(notional)
         cash_needed = notional + commission
 
-        if Decimal(str(account.current_cash)) < cash_needed:
-            raise ValueError(f"Insufficient cash. Need ${cash_needed:.2f}, current cash ${account.current_cash:.2f}")
+        # Check available cash (current_cash - frozen_cash)
+        available_cash = Decimal(str(account.current_cash)) - Decimal(str(account.frozen_cash))
+        if available_cash < cash_needed:
+            raise ValueError(f"Insufficient cash. Need ${cash_needed:.2f}, available ${available_cash:.2f}")
+
+        # Freeze cash for this order
+        account.frozen_cash = float(Decimal(str(account.frozen_cash)) + cash_needed)
+        cash_frozen = cash_needed
 
     else:  # SELL
         # Sell: check if sufficient positions available
@@ -93,29 +101,36 @@ def create_order(db: Session, account: Account, symbol: str, name: str, market: 
         if not position or float(position.available_quantity) < quantity:
             available_qty = float(position.available_quantity) if position else 0
             raise ValueError(f"Insufficient positions. Need {quantity} {symbol}, available {available_qty} {symbol}")
-    
-    # Create order
-    order = Order(
-        version="v1",
-        account_id=account.id,
-        order_no=uuid.uuid4().hex[:16],
-        symbol=symbol,
-        name=name,
-        market=market,
-        side=side,
-        order_type=order_type,
-        price=price,
-        quantity=quantity,
-        filled_quantity=0,
-        status="PENDING",
-    )
 
-    db.add(order)
-    db.flush()
+    try:
+        # Create order
+        order = Order(
+            version="v1",
+            account_id=account.id,
+            order_no=uuid.uuid4().hex[:16],
+            symbol=symbol,
+            name=name,
+            market=market,
+            side=side,
+            order_type=order_type,
+            price=price,
+            quantity=quantity,
+            filled_quantity=0,
+            status="PENDING",
+        )
 
-    logger.info(f"Created limit order: {order.order_no}, {side} {quantity} {symbol} @ {price if price else 'MARKET'}")
+        db.add(order)
+        db.flush()
 
-    return order
+        logger.info(f"Created limit order: {order.order_no}, {side} {quantity} {symbol} @ {price if price else 'MARKET'}")
+
+        return order
+
+    except Exception as e:
+        # Rollback frozen cash if order creation fails
+        if cash_frozen > 0:
+            account.frozen_cash = float(Decimal(str(account.frozen_cash)) - cash_frozen)
+        raise
 
 
 def check_and_execute_order(db: Session, order: Order) -> bool:
@@ -135,18 +150,20 @@ def check_and_execute_order(db: Session, order: Order) -> bool:
     """
     if order.status != "PENDING":
         return False
-    
+
+    # Get user information first
+    account = db.query(Account).filter(Account.id == order.account_id).first()
+    if not account:
+        logger.error(f"Account corresponding to order {order.order_no} does not exist")
+        return False
+
     # Check if cookie is configured, skip order checking if not
     try:
         # Get current market price
         current_price = get_last_price(order.symbol, order.market)
         current_price_decimal = Decimal(str(current_price))
 
-        # Get user information
-        account = db.query(Account).filter(Account.id == order.account_id).first()
-        if not account:
-            logger.error(f"Account corresponding to order {order.order_no} does not exist")
-            return False
+        logger.debug(f"Order {order.order_no}: Fetched price for {order.symbol} = ${current_price}")
 
         # Check execution conditions
         should_execute = False
@@ -156,6 +173,7 @@ def check_and_execute_order(db: Session, order: Order) -> bool:
             # Market order executes immediately
             should_execute = True
             execution_price = current_price_decimal
+            logger.info(f"MARKET order {order.order_no} ready to execute at ${execution_price}")
 
         elif order.order_type == "LIMIT":
             # Limit order conditional execution
@@ -166,22 +184,36 @@ def check_and_execute_order(db: Session, order: Order) -> bool:
                 if limit_price >= current_price_decimal:
                     should_execute = True
                     execution_price = current_price_decimal  # Execute at market price
+                    logger.info(f"LIMIT BUY order {order.order_no} meets condition: limit ${limit_price} >= market ${current_price}")
+                else:
+                    logger.debug(f"LIMIT BUY order {order.order_no} waiting: limit ${limit_price} < market ${current_price}")
 
             else:  # SELL
                 # Sell: order price <= current market price
                 if limit_price <= current_price_decimal:
                     should_execute = True
                     execution_price = current_price_decimal  # Execute at market price
+                    logger.info(f"LIMIT SELL order {order.order_no} meets condition: limit ${limit_price} <= market ${current_price}")
+                else:
+                    logger.debug(f"LIMIT SELL order {order.order_no} waiting: limit ${limit_price} > market ${current_price}")
 
         if not should_execute:
-            logger.debug(f"Order {order.order_no} does not meet execution condition: {order.side} {order.price} vs market {current_price}")
             return False
 
         # Execute order
-        return _execute_order(db, order, account, execution_price)
+        result = _execute_order(db, order, account, execution_price)
+        if result:
+            logger.info(f"✓ Order {order.order_no} executed successfully at ${execution_price}")
+        else:
+            logger.warning(f"✗ Order {order.order_no} execution failed (insufficient funds/position)")
+        return result
 
     except Exception as e:
-        logger.error(f"Error checking order {order.order_no}: {e}")
+        logger.error(f"Error checking order {order.order_no}: {e}", exc_info=True)
+        # For MARKET orders, this is critical - log more details
+        if order.order_type == "MARKET":
+            logger.error(f"MARKET order {order.order_no} failed to execute due to price fetch error. "
+                        f"Symbol: {order.symbol}, Market: {order.market}")
         return False
 
 
@@ -243,18 +275,19 @@ def _execute_order(db: Session, order: Order, account: Account, execution_price:
                 db.add(position)
                 db.flush()
             
-            # Calculate new average cost (fix: use float quantities for crypto)
-            old_qty = float(position.quantity)  # Keep as float for crypto
+            # Calculate new average cost (convert all to Decimal for consistent math)
+            old_qty = Decimal(str(position.quantity))
             old_cost = Decimal(str(position.avg_cost))
-            new_qty = old_qty + quantity
-            
+            new_qty = old_qty + Decimal(str(quantity))
+
             if old_qty == 0:
                 new_avg_cost = execution_price
             else:
-                new_avg_cost = (old_cost * Decimal(str(old_qty)) + notional) / Decimal(str(new_qty))
-            
-            position.quantity = new_qty  # Store as float
-            position.available_quantity = float(position.available_quantity) + quantity  # Keep as float
+                new_avg_cost = (old_cost * old_qty + notional) / new_qty
+
+            # Convert back to float for storage
+            position.quantity = float(new_qty)
+            position.available_quantity = float(Decimal(str(position.available_quantity)) + Decimal(str(quantity)))
             position.avg_cost = float(new_avg_cost)
             
         else:  # SELL
@@ -269,9 +302,9 @@ def _execute_order(db: Session, order: Order, account: Account, execution_price:
                 logger.warning(f"Insufficient position when executing order {order.order_no}")
                 return False
 
-            # Reduce position (fix: use float quantities for crypto)
-            position.quantity = float(position.quantity) - quantity
-            position.available_quantity = float(position.available_quantity) - quantity
+            # Reduce position (convert to Decimal for consistent math)
+            position.quantity = float(Decimal(str(position.quantity)) - Decimal(str(quantity)))
+            position.available_quantity = float(Decimal(str(position.available_quantity)) - Decimal(str(quantity)))
             
             # Add cash
             cash_gain = notional - commission
@@ -331,14 +364,20 @@ def get_pending_orders(db: Session, account_id: Optional[int] = None) -> list[Or
 def _release_frozen_on_cancel(account: Account, order: Order):
     """Release frozen on order cancel (BUY only)"""
     if order.side == "BUY":
-        # Conservative release: estimate frozen amount based on order price, avoid getting market price
-        ref_price = float(order.price or 0.0)
-        if ref_price <= 0:
-            # If no order price (theoretically shouldn't happen), use conservative estimate
-            logger.warning(f"Order {order.order_no} has no order price, unable to accurately release frozen funds")
-            ref_price = 100.0  # Use default value
+        # For market orders, price is None - need to fetch current price
+        if order.price is None:
+            # Market order: get current market price to calculate frozen amount
+            try:
+                ref_price = get_last_price(order.symbol, order.market)
+            except Exception as e:
+                # If we can't get price, use conservative estimate
+                logger.warning(f"Order {order.order_no} is market order but cannot get price: {e}, using default estimate")
+                ref_price = 100.0
+        else:
+            # Limit order: use order price
+            ref_price = float(order.price)
 
-        notional = Decimal(str(ref_price)) * Decimal(order.quantity)
+        notional = Decimal(str(ref_price)) * Decimal(str(order.quantity))
         commission = _calc_commission(notional)
         release_amt = notional + commission
         account.frozen_cash = float(max(Decimal(str(account.frozen_cash)) - release_amt, Decimal('0')))

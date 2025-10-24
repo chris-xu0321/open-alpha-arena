@@ -181,6 +181,15 @@ export default function ComprehensiveView({
 
 // Order Book Component
 function OrderBook({ orders, onCancelOrder }: { orders: Order[], onCancelOrder: (id: number) => void }) {
+  const formatPrice = (order: Order) => {
+    if (order.price == null) {
+      // Market orders have no price
+      return order.order_type === 'MARKET' ? 'MARKET' : '-'
+    }
+    // Format limit order prices
+    return order.price.toFixed(2)
+  }
+
   return (
     <div>
       <Table>
@@ -205,7 +214,7 @@ function OrderBook({ orders, onCancelOrder }: { orders: Order[], onCancelOrder: 
               <TableCell>{o.symbol}.{o.market}</TableCell>
               <TableCell>{o.side}</TableCell>
               <TableCell>{o.order_type}</TableCell>
-              <TableCell>{o.price ?? '-'}</TableCell>
+              <TableCell>{formatPrice(o)}</TableCell>
               <TableCell>{o.quantity}</TableCell>
               <TableCell>{o.status}</TableCell>
               <TableCell>

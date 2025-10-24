@@ -20,7 +20,7 @@ def initialize_services():
         # Start the scheduler
         start_scheduler()
         logger.info("Scheduler service started")
-        
+
         # Set up market-related scheduled tasks
         setup_market_tasks()
         logger.info("Market scheduled tasks have been set up")
@@ -28,7 +28,7 @@ def initialize_services():
         # Start automatic cryptocurrency trading simulation task (5-minute interval)
         schedule_auto_trading(interval_seconds=300)
         logger.info("Automatic cryptocurrency trading task started (5-minute interval)")
-        
+
         # Add price cache cleanup task (every 2 minutes)
         from services.price_cache import clear_expired_prices
         task_scheduler.add_interval_task(
@@ -37,12 +37,48 @@ def initialize_services():
             task_id="price_cache_cleanup"
         )
         logger.info("Price cache cleanup task started (2-minute interval)")
-        
+
+        # Check AI trading configuration status
+        _check_ai_trading_status()
+
         logger.info("All services initialized successfully")
-        
+
     except Exception as e:
         logger.error(f"Service initialization failed: {e}")
         raise
+
+
+def _check_ai_trading_status():
+    """Check and report AI trading configuration status on startup"""
+    try:
+        from database.connection import SessionLocal
+        from services.ai_decision_service import get_active_ai_accounts
+
+        db = SessionLocal()
+        try:
+            accounts = get_active_ai_accounts(db)
+            if accounts:
+                logger.info("=" * 60)
+                logger.info("✓ AI TRADING IS ACTIVE")
+                logger.info(f"  Active Accounts: {len(accounts)}")
+                for acc in accounts:
+                    logger.info(f"    - {acc.name} (Model: {acc.model})")
+                logger.info("  Trading Interval: Every 5 minutes")
+                logger.info("=" * 60)
+            else:
+                logger.warning("=" * 60)
+                logger.warning("⚠ AI TRADING IS DISABLED")
+                logger.warning("  Reason: No accounts with valid API keys found")
+                logger.warning("  Action Required:")
+                logger.warning("    1. Open the web interface")
+                logger.warning("    2. Go to Settings")
+                logger.warning("    3. Update account API key with a valid OpenAI-compatible key")
+                logger.warning("    4. AI trading will start automatically at next 5-minute cycle")
+                logger.warning("=" * 60)
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Failed to check AI trading status: {e}")
 
 
 def shutdown_services():

@@ -283,7 +283,7 @@ function App() {
               <div className="flex-shrink-0">
                 <TradingPanel
                   onPlace={placeOrder}
-                  user={user}
+                  user={overview.account}
                   account={account}
                   positions={positions.map(p => ({ symbol: p.symbol, market: p.market, available_quantity: p.available_quantity }))}
                   lastPrices={Object.fromEntries(positions.map(p => [`${p.symbol}.${p.market}`, p.last_price ?? null]))}

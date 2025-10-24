@@ -231,10 +231,13 @@ export default function OrderForm({
             -
           </Button>
           <div className="relative flex-1">
-            <Input 
-              inputMode="numeric"
+            <Input
+              type="number"
+              step="any"
+              min="0"
+              inputMode="decimal"
               value={quantity}
-              onChange={(e) => onQuantityChange(parseInt(e.target.value) || 0)}
+              onChange={(e) => onQuantityChange(parseFloat(e.target.value) || 0)}
               className="text-center"
             />
           </div>

@@ -83,16 +83,23 @@ def place_ai_driven_crypto_order(max_ratio: float = 0.2) -> None:
     """Place crypto order based on AI model decision for all active accounts"""
     db = SessionLocal()
     try:
+        logger.info("=== AI Trading Cycle Starting ===")
         accounts = get_active_ai_accounts(db)
         if not accounts:
-            logger.debug("No available accounts, skipping AI trading")
+            logger.info("=== AI Trading Cycle Skipped: No valid accounts ===")
             return
+
+        logger.info(f"=== Processing {len(accounts)} AI account(s) ===")
 
         # Get latest market prices once for all accounts
         prices = _get_market_prices(AI_TRADING_SYMBOLS)
         if not prices:
-            logger.warning("Failed to fetch market prices, skipping AI trading")
+            logger.error("⚠ Failed to fetch market prices for AI trading")
+            logger.error(f"  → Attempted symbols: {', '.join(AI_TRADING_SYMBOLS)}")
+            logger.error("  → AI trading cycle aborted")
             return
+
+        logger.info(f"✓ Fetched prices for {len(prices)} symbols: {', '.join(prices.keys())}")
 
         # Iterate through all active accounts
         for account in accounts:

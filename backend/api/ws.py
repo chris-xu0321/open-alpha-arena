@@ -538,7 +538,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         # Extract order parameters
                         symbol = msg.get("symbol")
                         name = msg.get("name", symbol)  # Use symbol as name if not provided
-                        market = msg.get("market", "US")
+                        market = msg.get("market", "CRYPTO")
                         side = msg.get("side")
                         order_type = msg.get("order_type")
                         price = msg.get("price")
@@ -549,9 +549,9 @@ async def websocket_endpoint(websocket: WebSocket):
                             await websocket.send_text(json.dumps({"type": "error", "message": "missing required parameters"}))
                             continue
 
-                        # Convert quantity to int
+                        # Convert quantity to float (crypto supports fractional quantities)
                         try:
-                            quantity = int(quantity)
+                            quantity = float(quantity)
                         except (ValueError, TypeError):
                             await websocket.send_text(json.dumps({"type": "error", "message": "invalid quantity"}))
                             continue
@@ -559,7 +559,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         # Create the order
                         order = create_order(
                             db=db,
-                            user=user,
+                            account=account,
                             symbol=symbol,
                             name=name,
                             market=market,
@@ -572,8 +572,21 @@ async def websocket_endpoint(websocket: WebSocket):
                         # Commit the order
                         db.commit()
 
-                        # Send success response
-                        await manager.send_to_account(account_id, {"type": "order_pending", "order_id": order.id})
+                        # Refresh order object to get latest state
+                        db.refresh(order)
+
+                        # Try to execute the order immediately
+                        from services.order_matching import check_and_execute_order
+                        executed = check_and_execute_order(db, order)
+
+                        # Commit execution result
+                        db.commit()
+
+                        # Send appropriate response based on execution status
+                        if executed:
+                            await manager.send_to_account(account_id, {"type": "order_filled", "order_id": order.id})
+                        else:
+                            await manager.send_to_account(account_id, {"type": "order_pending", "order_id": order.id})
 
                         # Send updated snapshot
                         await _send_snapshot(db, account_id)

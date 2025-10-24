@@ -325,15 +325,30 @@ def get_active_ai_accounts(db: Session) -> List[Account]:
         Account.is_active == "true",
         Account.account_type == "AI"
     ).all()
-    
+
     if not accounts:
+        logger.warning("⚠ AI Trading Disabled: No AI accounts found in database")
         return []
-    
+
     # Filter out default accounts
-    valid_accounts = [acc for acc in accounts if not _is_default_api_key(acc.api_key)]
-    
+    valid_accounts = []
+    skipped_accounts = []
+
+    for acc in accounts:
+        if _is_default_api_key(acc.api_key):
+            skipped_accounts.append(acc.name)
+        else:
+            valid_accounts.append(acc)
+
+    if skipped_accounts:
+        logger.warning(f"⚠ AI Trading Disabled for {len(skipped_accounts)} account(s): {', '.join(skipped_accounts)}")
+        logger.warning("  → Reason: Using default/placeholder API keys")
+        logger.warning("  → Action: Update API keys in Settings to enable AI trading")
+
     if not valid_accounts:
-        logger.debug("No valid AI accounts found (all using default keys)")
+        logger.warning("⚠ AI Trading Disabled: No accounts with valid API keys")
+        logger.warning("  → Please configure at least one account with a real API key in Settings")
         return []
-        
+
+    logger.info(f"✓ AI Trading Active: {len(valid_accounts)} account(s) with valid API keys")
     return valid_accounts

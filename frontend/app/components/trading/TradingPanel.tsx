@@ -22,7 +22,7 @@ interface TradingPanelProps {
 
 export default function TradingPanel({ onPlace, user, positions = [], lastPrices = {} }: TradingPanelProps) {
   const [symbol, setSymbol] = useState('BTC')
-  const [market] = useState<'US'>('US')
+  const [market] = useState<'CRYPTO'>('CRYPTO')
   const [orderType, setOrderType] = useState<'MARKET' | 'LIMIT'>('LIMIT')
   const [price, setPrice] = useState<number>(190)
   const [quantity, setQuantity] = useState<number>(2)

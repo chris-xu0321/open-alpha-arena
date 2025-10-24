@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Dict, Set, Callable, Optional
 import logging
-from datetime import date
+from datetime import datetime, date
 
 from database.connection import SessionLocal
 from database.models import Position, CryptoPrice
