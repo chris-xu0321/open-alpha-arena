@@ -1,10 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import ReactDOM from 'react-dom/client'
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import './index.css'
 import { Toaster, toast } from 'react-hot-toast'
-import { Button } from '@/components/ui/button'
 
 // Create a module-level WebSocket singleton to avoid duplicate connections in React StrictMode
 let __WS_SINGLETON__: WebSocket | null = null;
@@ -291,39 +288,9 @@ function App() {
               </div>
 
               <div className="flex-1 overflow-hidden">
-                <Tabs defaultValue="asset" className="h-full flex flex-col">
-                  <TabsList className="grid w-full grid-cols-5">
-                    <TabsTrigger value="asset">Asset</TabsTrigger>
-                    <TabsTrigger value="ai-decisions">AI Decisions</TabsTrigger>
-                    <TabsTrigger value="positions">Positions</TabsTrigger>
-                    <TabsTrigger value="orders">Orders</TabsTrigger>
-                    <TabsTrigger value="trades">Trades</TabsTrigger>
-                  </TabsList>
-
-                  <div className="flex-1 overflow-hidden">
-                    <TabsContent value="asset" className="h-full overflow-y-auto">
-                      <div className="p-4 text-muted-foreground text-sm">
-                        Asset details shown in the comprehensive view below
-                      </div>
-                    </TabsContent>
-
-                    <TabsContent value="ai-decisions" className="h-full overflow-y-auto">
-                      <AIDecisionLogWS aiDecisions={aiDecisions} />
-                    </TabsContent>
-
-                    <TabsContent value="positions" className="h-full overflow-y-auto">
-                      <PositionListWS positions={positions} />
-                    </TabsContent>
-
-                    <TabsContent value="orders" className="h-full overflow-y-auto">
-                      <OrderBookWS orders={orders} />
-                    </TabsContent>
-
-                    <TabsContent value="trades" className="h-full overflow-y-auto">
-                      <TradeHistoryWS trades={trades} />
-                    </TabsContent>
-                  </div>
-                </Tabs>
+                <div className="h-full">
+                  <AssetOverview overview={overview} positions={positions} />
+                </div>
               </div>
             </div>
           </main>
@@ -354,159 +321,161 @@ function App() {
   )
 }
 
+function AssetOverview({ overview, positions }: { overview: Overview; positions: Position[] }) {
+  if (!overview) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-muted-foreground">Loading asset data...</div>
+      </div>
+    )
+  }
 
-const API_BASE = resolveApiBase()
+  const account = overview.account
+  const availableCash = account.current_cash - account.frozen_cash
 
-function OrderBookWS({ orders }: { orders: Order[] }) {
   return (
-    <div>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Time</TableHead><TableHead>Order No</TableHead><TableHead>Symbol</TableHead><TableHead>Side</TableHead><TableHead>Type</TableHead><TableHead>Price</TableHead><TableHead>Qty</TableHead><TableHead>Status</TableHead><TableHead>Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {orders.map(o => (
-            <TableRow key={o.id}>
-              <TableCell>{o.id}</TableCell>
-              <TableCell>{o.order_no}</TableCell>
-              <TableCell>{o.symbol}.{o.market}</TableCell>
-              <TableCell>{o.side}</TableCell>
-              <TableCell>{o.order_type}</TableCell>
-              <TableCell>{o.price ?? '-'}</TableCell>
-              <TableCell>{o.quantity}</TableCell>
-              <TableCell>{o.status}</TableCell>
-              <TableCell>
-                {o.status === 'PENDING' ? (
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={async () => {
-                      try {
-                        const resp = await fetch(`${API_BASE}/api/orders/cancel/${o.id}`, { method: 'POST' })
-                        if (!resp.ok) throw new Error(await resp.text())
-                        toast.success('Order cancelled')
-                        // refresh snapshot via WS
-                        const ws = (window as any).__WS_SINGLETON__ as WebSocket | undefined
-                        ;(ws || (undefined as any))?.send?.(JSON.stringify({ type: 'get_snapshot' }))
-                      } catch (e: any) {
-                        console.error(e)
-                        toast.error(e?.message || 'Cancel failed')
-                      }
-                    }}
-                  >Cancel</Button>
-                ) : null}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  )
-}
+    <div className="p-4 space-y-3">
+      {/* Account Overview & Performance Cards - Compact Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+        <div className="bg-secondary p-3 rounded-lg shadow-sm">
+          <div className="text-xs font-medium text-secondary-foreground mb-1">Total Assets</div>
+          <div className="text-xl font-bold text-secondary-foreground">
+            ${overview.total_assets.toLocaleString('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
+          </div>
+          <div className="text-xs text-muted-foreground mt-0.5">
+            Initial: ${account.initial_capital.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+          </div>
+        </div>
 
-function PositionListWS({ positions }: { positions: Position[] }) {
-  return (
-    <div>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Symbol</TableHead><TableHead>Name</TableHead><TableHead>Qty</TableHead><TableHead>Available</TableHead><TableHead>Avg Cost</TableHead><TableHead>Last Price</TableHead><TableHead>Market Value</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {positions.map(p => (
-            <TableRow key={p.id}>
-              <TableCell>{p.symbol}.{p.market}</TableCell>
-              <TableCell>{p.name}</TableCell>
-              <TableCell>{p.quantity}</TableCell>
-              <TableCell>{p.available_quantity}</TableCell>
-              <TableCell>{p.avg_cost.toFixed(4)}</TableCell>
-              <TableCell>{p.last_price != null ? p.last_price.toFixed(4) : '-'}</TableCell>
-              <TableCell>{p.market_value != null ? `$${p.market_value.toFixed(2)}` : '-'}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  )
-}
+        <div className="bg-secondary p-3 rounded-lg shadow-sm">
+          <div className="text-xs font-medium text-secondary-foreground mb-1">Cash Balance</div>
+          <div className="text-xl font-bold text-secondary-foreground">
+            ${account.current_cash.toLocaleString('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
+          </div>
+          <div className="text-xs text-muted-foreground mt-0.5">
+            Available: ${availableCash.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+          </div>
+        </div>
 
-function TradeHistoryWS({ trades }: { trades: Trade[] }) {
-  return (
-    <div>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Time</TableHead><TableHead>Order ID</TableHead><TableHead>Symbol</TableHead><TableHead>Side</TableHead><TableHead>Price</TableHead><TableHead>Qty</TableHead><TableHead>Commission</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {trades.map(t => (
-            <TableRow key={t.id}>
-              <TableCell>{new Date(t.trade_time).toLocaleString()}</TableCell>
-              <TableCell>{t.order_id}</TableCell>
-              <TableCell>{t.symbol}.{t.market}</TableCell>
-              <TableCell>{t.side}</TableCell>
-              <TableCell>{t.price.toFixed(2)}</TableCell>
-              <TableCell>{t.quantity}</TableCell>
-              <TableCell>{t.commission.toFixed(2)}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  )
-}
+        <div className="bg-secondary p-3 rounded-lg shadow-sm">
+          <div className="text-xs font-medium text-secondary-foreground mb-1">Positions Value</div>
+          <div className="text-xl font-bold text-secondary-foreground">
+            ${overview.positions_value.toLocaleString('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
+          </div>
+          <div className="text-xs text-muted-foreground mt-0.5">
+            {positions.length} position{positions.length !== 1 ? 's' : ''}
+          </div>
+        </div>
 
-function AIDecisionLogWS({ aiDecisions }: { aiDecisions: AIDecision[] }) {
-  return (
-    <div>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Time</TableHead>
-            <TableHead>Operation</TableHead>
-            <TableHead>Symbol</TableHead>
-            <TableHead>Prev %</TableHead>
-            <TableHead>Target %</TableHead>
-            <TableHead>Balance</TableHead>
-            <TableHead>Executed</TableHead>
-            <TableHead>Reason</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {aiDecisions.map(d => (
-            <TableRow key={d.id}>
-              <TableCell>{new Date(d.decision_time).toLocaleString()}</TableCell>
-              <TableCell>
-                <span className={`px-2 py-1 rounded text-xs font-medium ${
-                  d.operation === 'buy' ? 'bg-green-100 text-green-800' :
-                  d.operation === 'sell' ? 'bg-red-100 text-red-800' :
-                  'bg-gray-100 text-gray-800'
-                }`}>
-                  {d.operation.toUpperCase()}
-                </span>
-              </TableCell>
-              <TableCell>{d.symbol || '-'}</TableCell>
-              <TableCell>{(d.prev_portion * 100).toFixed(2)}%</TableCell>
-              <TableCell>{(d.target_portion * 100).toFixed(2)}%</TableCell>
-              <TableCell>${d.total_balance.toFixed(2)}</TableCell>
-              <TableCell>
-                <span className={`px-2 py-1 rounded text-xs font-medium ${
-                  d.executed === 'true' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-                }`}>
-                  {d.executed === 'true' ? 'Yes' : 'No'}
-                </span>
-              </TableCell>
-              <TableCell className="max-w-xs truncate" title={d.reason}>
-                {d.reason}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+        <div className="bg-secondary p-3 rounded-lg shadow-sm">
+          <div className="text-xs font-medium text-secondary-foreground mb-1">Total P&L</div>
+          <div className={`text-xl font-bold ${
+            overview.total_assets - account.initial_capital >= 0
+              ? 'text-green-600'
+              : 'text-red-600'
+          }`}>
+            {overview.total_assets - account.initial_capital >= 0 ? '+' : ''}
+            ${(overview.total_assets - account.initial_capital).toLocaleString('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
+          </div>
+        </div>
+
+        <div className="bg-secondary p-3 rounded-lg shadow-sm">
+          <div className="text-xs font-medium text-secondary-foreground mb-1">Return Rate</div>
+          <div className={`text-xl font-bold ${
+            ((overview.total_assets - account.initial_capital) / account.initial_capital * 100) >= 0
+              ? 'text-green-600'
+              : 'text-red-600'
+          }`}>
+            {((overview.total_assets - account.initial_capital) / account.initial_capital * 100) >= 0 ? '+' : ''}
+            {((overview.total_assets - account.initial_capital) / account.initial_capital * 100).toFixed(2)}%
+          </div>
+        </div>
+      </div>
+
+      {/* Two Column Layout: Positions Breakdown and Asset Allocation */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {/* Positions Breakdown */}
+        {positions.length > 0 && (
+          <div className="bg-secondary p-3 rounded-lg shadow-sm">
+            <div className="text-xs font-medium text-secondary-foreground mb-2">Position Breakdown</div>
+            <div className="space-y-2">
+              {positions.map(position => {
+                const positionValue = position.market_value || 0
+                const positionPnL = positionValue - (position.quantity * position.avg_cost)
+                const positionPnLPercent = ((positionValue / (position.quantity * position.avg_cost)) - 1) * 100
+
+                return (
+                  <div key={position.id} className="flex items-center justify-between p-2 bg-background rounded">
+                    <div className="flex-1">
+                      <div className="text-sm font-medium text-secondary-foreground">{position.symbol}</div>
+                      <div className="text-xs text-muted-foreground">{position.name}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-medium text-secondary-foreground">
+                        ${positionValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                      <div className={`text-xs ${positionPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {positionPnL >= 0 ? '+' : ''}${positionPnL.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {' '}({positionPnL >= 0 ? '+' : ''}{positionPnLPercent.toFixed(2)}%)
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Asset Allocation */}
+        <div className="bg-secondary p-3 rounded-lg shadow-sm self-start">
+          <div className="text-xs font-medium text-secondary-foreground mb-2">Asset Allocation</div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-blue-500 rounded"></div>
+                <span className="text-sm text-secondary-foreground">Cash</span>
+              </div>
+              <div className="text-sm font-medium text-secondary-foreground">
+                ${account.current_cash.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                {' '}({((account.current_cash / overview.total_assets) * 100).toFixed(1)}%)
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-green-500 rounded"></div>
+                <span className="text-sm text-secondary-foreground">Positions</span>
+              </div>
+              <div className="text-sm font-medium text-secondary-foreground">
+                ${overview.positions_value.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                {' '}({((overview.positions_value / overview.total_assets) * 100).toFixed(1)}%)
+              </div>
+            </div>
+            {/* Visual bar */}
+            <div className="w-full h-6 bg-background rounded overflow-hidden flex mt-2">
+              <div
+                className="bg-blue-500 h-full transition-all"
+                style={{ width: `${(account.current_cash / overview.total_assets) * 100}%` }}
+              ></div>
+              <div
+                className="bg-green-500 h-full transition-all"
+                style={{ width: `${(overview.positions_value / overview.total_assets) * 100}%` }}
+              ></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
