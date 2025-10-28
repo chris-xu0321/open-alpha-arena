@@ -33,6 +33,7 @@ const API_BASE = '/api'
 export default function AccountSelector({ currentAccount, onAccountChange, username = "default", refreshTrigger }: AccountSelectorProps) {
   const [accounts, setAccounts] = useState<AccountWithAssets[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingOverviews, setLoadingOverviews] = useState<Set<number>>(new Set())
 
   useEffect(() => {
     fetchAccounts()
@@ -40,49 +41,61 @@ export default function AccountSelector({ currentAccount, onAccountChange, usern
 
   const fetchAccounts = async () => {
     try {
-      // Use default functions with hardcoded username for paper trading
+      setLoading(true)
+
+      // Step 1: Fetch basic account data immediately
       const accountData = await getAccounts()
       console.log('Fetched accounts:', accountData)
-      
-      // Get account-specific data for each account
-      const accountsWithAssets: AccountWithAssets[] = await Promise.all(
-        accountData.map(async (account) => {
-          try {
-            // Fetch overview data specific to this account
-            const response = await fetch(`${API_BASE}/account/${account.id}/overview`)
-            if (response.ok) {
-              const accountOverview = await response.json()
-              console.log(`Account ${account.id} overview:`, accountOverview)
-              return {
-                ...account,
-                total_assets: accountOverview.total_assets || account.current_cash + account.frozen_cash,
-                positions_value: accountOverview.positions_value || 0
-              }
-            } else {
-              console.warn(`Failed to fetch overview for account ${account.id}:`, response.status, response.statusText)
-              // Fallback to basic calculation if overview fails
-              return {
-                ...account,
-                total_assets: account.current_cash + account.frozen_cash,
-                positions_value: 0
-              }
-            }
-          } catch (error) {
-            console.warn(`Failed to fetch overview for account ${account.id}:`, error)
-            // Fallback to basic calculation
-            return {
-              ...account,
-              total_assets: account.current_cash + account.frozen_cash,
-              positions_value: 0
-            }
+
+      // Step 2: Show accounts with basic info immediately (fast)
+      const basicAccounts: AccountWithAssets[] = accountData.map(account => ({
+        ...account,
+        total_assets: account.current_cash + account.frozen_cash,
+        positions_value: 0
+      }))
+
+      setAccounts(basicAccounts)
+      setLoading(false)
+
+      // Step 3: Load overview data in background for each account (slow)
+      const overviewLoadingSet = new Set(accountData.map(a => a.id))
+      setLoadingOverviews(overviewLoadingSet)
+
+      // Fetch overviews in parallel and update progressively
+      accountData.forEach(async (account) => {
+        try {
+          const response = await fetch(`${API_BASE}/account/${account.id}/overview`)
+          if (response.ok) {
+            const accountOverview = await response.json()
+            console.log(`Account ${account.id} overview loaded:`, accountOverview)
+
+            // Update this specific account's data
+            setAccounts(prev => prev.map(a =>
+              a.id === account.id
+                ? {
+                    ...a,
+                    total_assets: accountOverview.total_assets || a.current_cash + a.frozen_cash,
+                    positions_value: accountOverview.positions_value || 0
+                  }
+                : a
+            ))
+          } else {
+            console.warn(`Failed to fetch overview for account ${account.id}:`, response.status, response.statusText)
           }
-        })
-      )
-      
-      setAccounts(accountsWithAssets)
+        } catch (error) {
+          console.warn(`Failed to fetch overview for account ${account.id}:`, error)
+        } finally {
+          // Remove this account from loading set
+          setLoadingOverviews(prev => {
+            const newSet = new Set(prev)
+            newSet.delete(account.id)
+            return newSet
+          })
+        }
+      })
+
     } catch (error) {
       console.error('Error fetching accounts:', error)
-    } finally {
       setLoading(false)
     }
   }
@@ -105,8 +118,12 @@ export default function AccountSelector({ currentAccount, onAccountChange, usern
     )
   }
 
-  const displayName = (account: AccountWithAssets) => {
+  const displayName = (account: AccountWithAssets, isLoadingOverview: boolean = false) => {
     const accountName = account.name || account.username || `${account.account_type} Account`
+    if (isLoadingOverview && account.positions_value === 0) {
+      // Show cash while loading overview
+      return `${accountName} (Cash: $${account.current_cash.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`
+    }
     return `${accountName} ($${account.total_assets.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`
   }
 
@@ -124,28 +141,34 @@ export default function AccountSelector({ currentAccount, onAccountChange, usern
         <SelectTrigger className="w-full">
           <SelectValue placeholder="Select Account" className="truncate">
             <span className="truncate block">
-              {currentAccountWithAssets 
-                ? displayName(currentAccountWithAssets) 
-                : currentAccount 
-                  ? `${currentAccount.name || 'Unknown Account'} (Loading...)` 
+              {currentAccountWithAssets
+                ? displayName(currentAccountWithAssets, loadingOverviews.has(currentAccountWithAssets.id))
+                : currentAccount
+                  ? `${currentAccount.name || 'Unknown Account'} (Loading...)`
                   : 'Select Account'
               }
             </span>
           </SelectValue>
         </SelectTrigger>
         <SelectContent>
-          {accounts.map((account) => (
-            <SelectItem key={account.id} value={account.id.toString()}>
-              <div className="flex flex-col">
-                <span className="font-medium">{displayName(account)}</span>
-                <span className="text-xs text-muted-foreground">
-                  Cash: ${account.current_cash.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | 
-                  Positions: ${account.positions_value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  {account.model && ` | ${account.model}`}
-                </span>
-              </div>
-            </SelectItem>
-          ))}
+          {accounts.map((account) => {
+            const isLoadingOverview = loadingOverviews.has(account.id)
+            return (
+              <SelectItem key={account.id} value={account.id.toString()}>
+                <div className="flex flex-col">
+                  <span className="font-medium">
+                    {displayName(account, isLoadingOverview)}
+                    {isLoadingOverview && account.positions_value === 0 && ' ⏳'}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    Cash: ${account.current_cash.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} |
+                    Positions: {isLoadingOverview && account.positions_value === 0 ? '...' : `$${account.positions_value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                    {account.model && ` | ${account.model}`}
+                  </span>
+                </div>
+              </SelectItem>
+            )
+          })}
         </SelectContent>
       </Select>
     </div>

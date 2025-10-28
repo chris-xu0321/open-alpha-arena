@@ -14,17 +14,10 @@ from sqlalchemy.orm import Session
 from database.models import Position, Account, AIDecisionLog
 from services.asset_calculator import calc_positions_value
 from services.news_feed import fetch_latest_news
+from services.ai_config_loader import ai_config
 
 
 logger = logging.getLogger(__name__)
-
-#  mode API keys that should be skipped
-DEMO_API_KEYS = {
-    "default-key-please-update-in-settings",
-    "default",
-    "",
-    None
-}
 
 SUPPORTED_SYMBOLS: Dict[str, str] = {
     "BTC": "Bitcoin",
@@ -34,11 +27,6 @@ SUPPORTED_SYMBOLS: Dict[str, str] = {
     "XRP": "Ripple",
     "BNB": "Binance Coin",
 }
-
-
-def _is_default_api_key(api_key: str) -> bool:
-    """Check if the API key is a default/placeholder key that should be skipped"""
-    return api_key in DEMO_API_KEYS
 
 
 def _get_portfolio_data(db: Session, account: Account) -> Dict:
@@ -67,11 +55,16 @@ def _get_portfolio_data(db: Session, account: Account) -> Dict:
 
 def call_ai_for_decision(account: Account, portfolio: Dict, prices: Dict[str, float]) -> Optional[Dict]:
     """Call AI model API to get trading decision"""
-    # Check if this is a default API key
-    if _is_default_api_key(account.api_key):
-        logger.info(f"Skipping AI trading for account {account.name} - using default API key")
+    # Get AI model configuration
+    if not account.ai_model_id:
+        logger.info(f"Skipping AI trading for account {account.name} - no AI model configured")
         return None
-    
+
+    model_config = ai_config.get_model_config(account.ai_model_id)
+    if not model_config:
+        logger.error(f"Invalid AI model ID '{account.ai_model_id}' for account {account.name}")
+        return None
+
     try:
         news_summary = fetch_latest_news()
         news_section = news_summary if news_summary else "No recent CoinJournal news available."
@@ -108,12 +101,12 @@ Rules:
 
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {account.api_key}"
+            "Authorization": f"Bearer {model_config.api_key}"
         }
-        
+
         # Use OpenAI-compatible chat completions format
         payload = {
-            "model": account.model,
+            "model": model_config.model,
             "messages": [
                 {
                     "role": "user",
@@ -123,12 +116,9 @@ Rules:
             "temperature": 0.7,
             "max_tokens": 1000
         }
-        
-        # Construct API endpoint URL
-        # Remove trailing slash from base_url if present
-        base_url = account.base_url.rstrip('/')
-        # Use /chat/completions endpoint (OpenAI-compatible)
-        api_endpoint = f"{base_url}/chat/completions"
+
+        # Construct API endpoint URL (base_url already cleaned in config loader)
+        api_endpoint = f"{model_config.base_url}/chat/completions"
         
         # Retry logic for rate limiting
         max_retries = 3
@@ -320,7 +310,7 @@ def save_ai_decision(db: Session, account: Account, decision: Dict, portfolio: D
 
 
 def get_active_ai_accounts(db: Session) -> List[Account]:
-    """Get all active AI accounts that are not using default API key"""
+    """Get all active AI accounts that have valid AI model configuration"""
     accounts = db.query(Account).filter(
         Account.is_active == "true",
         Account.account_type == "AI"
@@ -330,25 +320,28 @@ def get_active_ai_accounts(db: Session) -> List[Account]:
         logger.warning("⚠ AI Trading Disabled: No AI accounts found in database")
         return []
 
-    # Filter out default accounts
+    # Filter accounts with valid AI model configuration
     valid_accounts = []
     skipped_accounts = []
 
     for acc in accounts:
-        if _is_default_api_key(acc.api_key):
+        if not acc.ai_model_id:
+            skipped_accounts.append(acc.name)
+        elif not ai_config.is_valid_model_id(acc.ai_model_id):
+            logger.error(f"Account {acc.name} has invalid AI model ID: {acc.ai_model_id}")
             skipped_accounts.append(acc.name)
         else:
             valid_accounts.append(acc)
 
     if skipped_accounts:
         logger.warning(f"⚠ AI Trading Disabled for {len(skipped_accounts)} account(s): {', '.join(skipped_accounts)}")
-        logger.warning("  → Reason: Using default/placeholder API keys")
-        logger.warning("  → Action: Update API keys in Settings to enable AI trading")
+        logger.warning("  → Reason: No AI model configured or invalid AI model ID")
+        logger.warning("  → Action: Select an AI model in Settings to enable AI trading")
 
     if not valid_accounts:
-        logger.warning("⚠ AI Trading Disabled: No accounts with valid API keys")
-        logger.warning("  → Please configure at least one account with a real API key in Settings")
+        logger.warning("⚠ AI Trading Disabled: No accounts with valid AI model configuration")
+        logger.warning("  → Please configure at least one account with an AI model in Settings")
         return []
 
-    logger.info(f"✓ AI Trading Active: {len(valid_accounts)} account(s) with valid API keys")
+    logger.info(f"✓ AI Trading Active: {len(valid_accounts)} account(s) with valid AI model configuration")
     return valid_accounts

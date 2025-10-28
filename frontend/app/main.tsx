@@ -307,7 +307,8 @@ function App() {
           <main className="flex-1 p-6 overflow-hidden">
             <Portfolio
               user={overview.account}
-              onUserChange={switchUser}
+              onSwitchAccount={switchAccount}
+              accountRefreshTrigger={accountRefreshTrigger}
             />
             <div className="flex gap-6 h-[calc(100vh-400px)] mt-4">
               <div className="flex-shrink-0">

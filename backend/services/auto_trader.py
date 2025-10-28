@@ -10,7 +10,6 @@ from services.ai_decision_service import (
     save_ai_decision as _save_ai_decision,
     get_active_ai_accounts as _choose_account,
     _get_portfolio_data,
-    _is_default_api_key,
     SUPPORTED_SYMBOLS
 )
 

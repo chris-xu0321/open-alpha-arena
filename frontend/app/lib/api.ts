@@ -146,9 +146,10 @@ export interface TradingAccount {
   id: number
   user_id: number
   name: string  // Display name (e.g., "GPT Trader", "Claude Analyst")
-  model?: string  // AI model (e.g., "gpt-4-turbo")
-  base_url?: string  // API endpoint
-  api_key?: string  // API key (masked in responses)
+  ai_model_id?: string  // AI model ID from backend config
+  model?: string  // AI model name (read-only, from backend)
+  base_url?: string  // API endpoint (read-only, from backend)
+  // NOTE: api_key removed - stored securely in backend
   initial_capital: number
   current_cash: number
   frozen_cash: number
@@ -158,18 +159,15 @@ export interface TradingAccount {
 
 export interface TradingAccountCreate {
   name: string
-  model?: string
-  base_url?: string
-  api_key?: string
+  ai_model_id?: string  // AI model ID to use (instead of manual model/base_url/api_key)
   initial_capital?: number
   account_type?: string
 }
 
 export interface TradingAccountUpdate {
   name?: string
-  model?: string
-  base_url?: string
-  api_key?: string
+  current_cash?: number  // Only name and cash can be updated
+  // NOTE: AI model configuration cannot be changed after creation
 }
 
 
@@ -254,17 +252,22 @@ export async function updateAccount(accountId: number, account: TradingAccountUp
   return response.json()
 }
 
-export async function testLLMConnection(testData: {
-  model?: string;
-  base_url?: string;
-  api_key?: string;
-}): Promise<{ success: boolean; message: string; response?: any }> {
-  const response = await apiRequest('/account/test-llm', {
-    method: 'POST',
-    body: JSON.stringify(testData)
-  })
+// AI Model configuration interface
+export interface AIModel {
+  id: string
+  display_name: string
+  model: string
+  base_url: string
+  // NOTE: api_key excluded - stored securely in backend
+}
+
+// Get available AI models from backend
+export async function getAvailableModels(): Promise<{ models: AIModel[] }> {
+  const response = await apiRequest('/account/available-models')
   return response.json()
 }
+
+// NOTE: testLLMConnection removed - API keys are now managed in backend config
 
 // Legacy aliases for backward compatibility
 export type AIAccount = TradingAccount

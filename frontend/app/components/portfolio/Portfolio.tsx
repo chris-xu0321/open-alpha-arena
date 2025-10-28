@@ -12,24 +12,24 @@ interface Account {
 
 interface PortfolioProps {
   user: Account
-  onUserChange?: (username: string) => void
+  onSwitchAccount?: (accountId: number) => void
+  accountRefreshTrigger?: number
 }
 
 export default function Portfolio({
   user,
-  onUserChange
+  onSwitchAccount,
+  accountRefreshTrigger
 }: PortfolioProps) {
   return (
     <div className="space-y-6">
       {/* Account Selector */}
-      {onUserChange && (
+      {onSwitchAccount && (
         <div className="flex justify-end">
           <AccountSelector
             currentAccount={user}
-            onAccountChange={(accountId) => {
-              console.log('Switch to account ID:', accountId)
-              // Implement account switching if needed
-            }}
+            onAccountChange={onSwitchAccount}
+            refreshTrigger={accountRefreshTrigger}
           />
         </div>
       )}

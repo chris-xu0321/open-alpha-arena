@@ -9,57 +9,40 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Trash2, Plus, Pencil, Eye, EyeOff } from 'lucide-react'
+import { Plus, Pencil } from 'lucide-react'
 import {
-  getAccounts as getAccounts,
-  createAccount as createAccount,
-  updateAccount as updateAccount,
-  testLLMConnection,
+  getAccounts,
+  createAccount,
+  updateAccount,
+  getAvailableModels,
   type TradingAccount,
   type TradingAccountCreate,
-  type TradingAccountUpdate
+  type TradingAccountUpdate,
+  type AIModel
 } from '@/lib/api'
 
 interface SettingsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onAccountUpdated?: () => void  // Add callback for when account is updated
-}
-
-interface AIAccount extends TradingAccount {
-  model?: string
-  base_url?: string
-  api_key?: string
-}
-
-interface AIAccountCreate extends TradingAccountCreate {
-  model?: string
-  base_url?: string
-  api_key?: string
+  onAccountUpdated?: () => void
 }
 
 export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }: SettingsDialogProps) {
-  const [accounts, setAccounts] = useState<AIAccount[]>([])
+  const [accounts, setAccounts] = useState<TradingAccount[]>([])
+  const [availableModels, setAvailableModels] = useState<AIModel[]>([])
   const [loading, setLoading] = useState(false)
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [testResult, setTestResult] = useState<string | null>(null)
-  const [testing, setTesting] = useState(false)
-  const [showNewApiKey, setShowNewApiKey] = useState(false)
-  const [showEditApiKey, setShowEditApiKey] = useState(false)
-  const [newAccount, setNewAccount] = useState<AIAccountCreate>({
-    name: '',
-    model: '',
-    base_url: '',
-    api_key: '',
-  })
-  const [editAccount, setEditAccount] = useState<AIAccountCreate>({
-    name: '',
-    model: '',
-    base_url: '',
-    api_key: '',
-  })
+
+  // Add mode state
+  const [name, setName] = useState('')
+  const [selectedModelId, setSelectedModelId] = useState('')
+  const [initialCapital, setInitialCapital] = useState('10000')
+
+  // Edit mode state
+  const [editName, setEditName] = useState('')
+  const [editCurrentCash, setEditCurrentCash] = useState('')
 
   const loadAccounts = async () => {
     try {
@@ -74,11 +57,21 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
     }
   }
 
+  const loadAvailableModels = async () => {
+    try {
+      const response = await getAvailableModels()
+      setAvailableModels(response.models || [])
+    } catch (error) {
+      console.error('Failed to load AI models:', error)
+      toast.error('Failed to load AI models')
+    }
+  }
+
   useEffect(() => {
     if (open) {
       loadAccounts()
+      loadAvailableModels()
       setError(null)
-      setTestResult(null)
       setShowAddForm(false)
       setEditingId(null)
     }
@@ -89,28 +82,36 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
       setLoading(true)
       setError(null)
 
-      if (!newAccount.name || !newAccount.name.trim()) {
+      if (!name || !name.trim()) {
         setError('Account name is required')
         setLoading(false)
         return
       }
 
-      // Set default API key if not provided
-      const accountToCreate = {
-        ...newAccount,
-        api_key: newAccount.api_key || 'default-key-please-update-in-settings'
+      if (!selectedModelId) {
+        setError('Please select an AI model')
+        setLoading(false)
+        return
       }
 
-      console.log('Creating account with data:', accountToCreate)
-      await createAccount(accountToCreate)
-      setNewAccount({ name: '', model: '', base_url: '', api_key: '' })
+      const accountData: TradingAccountCreate = {
+        name: name.trim(),
+        ai_model_id: selectedModelId,
+        initial_capital: parseFloat(initialCapital) || 10000,
+        account_type: 'AI'
+      }
+
+      console.log('Creating account with data:', accountData)
+      await createAccount(accountData)
+
+      // Reset form
+      setName('')
+      setSelectedModelId('')
+      setInitialCapital('10000')
       setShowAddForm(false)
-      setShowNewApiKey(false)
+
       await loadAccounts()
-
       toast.success('Account created successfully!')
-
-      // Notify parent component that account was created
       onAccountUpdated?.()
     } catch (error) {
       console.error('Failed to create account:', error)
@@ -124,91 +125,57 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
 
   const handleUpdateAccount = async () => {
     if (!editingId) return
+
     try {
       setLoading(true)
-      setTesting(true)
       setError(null)
-      setTestResult(null)
-      
-      if (!editAccount.name || !editAccount.name.trim()) {
+
+      if (!editName || !editName.trim()) {
         setError('Account name is required')
         setLoading(false)
-        setTesting(false)
         return
       }
-      
-      // Test LLM connection first if AI model data is provided
-      if (editAccount.model || editAccount.base_url || editAccount.api_key) {
-        setTestResult('Testing LLM connection...')
-        
-        try {
-          const testResponse = await testLLMConnection({
-            model: editAccount.model,
-            base_url: editAccount.base_url,
-            api_key: editAccount.api_key
-          })
-          
-          if (!testResponse.success) {
-            setError(`LLM Test Failed: ${testResponse.message}`)
-            setTestResult(`❌ Test failed: ${testResponse.message}`)
-            setLoading(false)
-            setTesting(false)
-            return
-          }
-          
-          setTestResult('✅ LLM connection test passed!')
-        } catch (testError) {
-          const errorMessage = testError instanceof Error ? testError.message : 'LLM connection test failed'
-          setError(`LLM Test Failed: ${errorMessage}`)
-          setTestResult(`❌ Test failed: ${errorMessage}`)
-          setLoading(false)
-          setTesting(false)
-          return
-        }
+
+      const updateData: TradingAccountUpdate = {
+        name: editName.trim(),
+        current_cash: parseFloat(editCurrentCash)
       }
-      
-      setTesting(false)
-      setTestResult('✅ Test passed! Saving account...')
-      
-      console.log('Updating account with data:', editAccount)
-      await updateAccount(editingId, editAccount)
+
+      console.log('Updating account with data:', updateData)
+      await updateAccount(editingId, updateData)
+
       setEditingId(null)
-      setEditAccount({ name: '', model: '', base_url: '', api_key: '' })
-      setTestResult(null)
+      setEditName('')
+      setEditCurrentCash('')
+
       await loadAccounts()
-      
       toast.success('Account updated successfully!')
-      
-      // Notify parent component that account was updated
       onAccountUpdated?.()
     } catch (error) {
       console.error('Failed to update account:', error)
       const errorMessage = error instanceof Error ? error.message : 'Failed to update account'
       setError(errorMessage)
-      setTestResult(null)
       toast.error(`Failed to update account: ${errorMessage}`)
     } finally {
       setLoading(false)
-      setTesting(false)
     }
   }
 
-  const startEdit = (account: AIAccount) => {
+  const startEdit = (account: TradingAccount) => {
     setEditingId(account.id)
-    setEditAccount({
-      name: account.name,
-      model: account.model || '',
-      base_url: account.base_url || '',
-      api_key: account.api_key || '',
-    })
+    setEditName(account.name)
+    setEditCurrentCash(account.current_cash?.toString() || '0')
   }
 
   const cancelEdit = () => {
     setEditingId(null)
-    setEditAccount({ name: '', model: '', base_url: '', api_key: '' })
-    setShowEditApiKey(false)
-    setTestResult(null)
+    setEditName('')
+    setEditCurrentCash('')
     setError(null)
+  }
+
+  const getSelectedModel = () => {
+    return availableModels.find(m => m.id === selectedModelId)
   }
 
   return (
@@ -250,56 +217,37 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
                   <div key={account.id} className="border rounded-lg p-4">
                     {editingId === account.id ? (
                       <div className="space-y-3">
-                        <div className="grid grid-cols-2 gap-3">
-                          <Input
-                            placeholder="Account name"
-                            value={editAccount.name || ''}
-                            onChange={(e) => setEditAccount({ ...editAccount, name: e.target.value })}
-                            className="text-sm"
-                          />
-                          <Input
-                            placeholder="Model"
-                            value={editAccount.model || ''}
-                            onChange={(e) => setEditAccount({ ...editAccount, model: e.target.value })}
-                            className="text-sm"
-                          />
-                        </div>
                         <Input
-                          placeholder="Base URL"
-                          value={editAccount.base_url || ''}
-                          onChange={(e) => setEditAccount({ ...editAccount, base_url: e.target.value })}
-                          className="text-sm truncate"
+                          placeholder="Account name"
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          className="text-sm"
                         />
-                        <div className="relative">
-                          <Input
-                            placeholder="API Key"
-                            type={showEditApiKey ? "text" : "password"}
-                            value={editAccount.api_key || ''}
-                            onChange={(e) => setEditAccount({ ...editAccount, api_key: e.target.value })}
-                            className="text-sm pr-10 truncate"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setShowEditApiKey(!showEditApiKey)}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
-                          >
-                            {showEditApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                          </button>
-                        </div>
-                        {testResult && (
-                          <div className={`text-sm p-2 rounded break-words ${
-                            testResult.includes('❌')
-                              ? 'bg-red-50 text-red-700 border border-red-200'
-                              : 'bg-green-50 text-green-700 border border-green-200'
-                          }`}>
-                            {testResult}
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="Current cash"
+                          value={editCurrentCash}
+                          onChange={(e) => setEditCurrentCash(e.target.value)}
+                          className="text-sm"
+                        />
+                        <div className="text-sm p-3 bg-gray-50 rounded border">
+                          <div className="font-semibold text-gray-700 mb-1">AI Model (read-only)</div>
+                          <div className="text-gray-600">
+                            {account.model ? (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                {account.model}
+                              </span>
+                            ) : (
+                              <span className="text-gray-400">No model configured</span>
+                            )}
                           </div>
-                        )}
+                        </div>
                         <div className="flex gap-2">
-                          <Button onClick={handleUpdateAccount} disabled={loading || testing} size="sm">
-                            {testing ? 'Testing...' : 'Test and Save'}
+                          <Button onClick={handleUpdateAccount} disabled={loading} size="sm">
+                            {loading ? 'Saving...' : 'Save'}
                           </Button>
-                          <Button onClick={cancelEdit} variant="outline" size="sm" disabled={loading || testing}>
+                          <Button onClick={cancelEdit} variant="outline" size="sm" disabled={loading}>
                             Cancel
                           </Button>
                         </div>
@@ -309,16 +257,17 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
                         <div className="space-y-1 flex-1">
                           <div className="font-medium">{account.name}</div>
                           <div className="text-sm text-muted-foreground">
-                            {account.model ? `Model: ${account.model}` : 'No model configured'}
+                            {account.model ? (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                {account.model}
+                              </span>
+                            ) : (
+                              <span>No model configured</span>
+                            )}
                           </div>
                           {account.base_url && (
-                            <div className="text-sm text-muted-foreground truncate">
-                              Base URL: {account.base_url}
-                            </div>
-                          )}
-                          {account.api_key && (
-                            <div className="text-sm text-muted-foreground">
-                              API Key: {'*'.repeat(Math.max(0, (account.api_key?.length || 0) - 4))}{account.api_key?.slice(-4) || '****'}
+                            <div className="text-xs text-muted-foreground truncate">
+                              Endpoint: {account.base_url}
                             </div>
                           )}
                           <div className="text-sm text-muted-foreground">
@@ -347,42 +296,52 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
             <div className="space-y-4 border-t pt-4">
               <h3 className="text-lg font-medium">Add New Account</h3>
               <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <Input
-                    placeholder="Account name"
-                    value={newAccount.name || ''}
-                    onChange={(e) => setNewAccount({ ...newAccount, name: e.target.value })}
-                    className="text-sm"
-                  />
-                  <Input
-                    placeholder="Model (e.g., gpt-4)"
-                    value={newAccount.model || ''}
-                    onChange={(e) => setNewAccount({ ...newAccount, model: e.target.value })}
-                    className="text-sm"
-                  />
-                </div>
                 <Input
-                  placeholder="Base URL (e.g., https://api.openai.com/v1)"
-                  value={newAccount.base_url || ''}
-                  onChange={(e) => setNewAccount({ ...newAccount, base_url: e.target.value })}
-                  className="text-sm truncate"
+                  placeholder="Account name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="text-sm"
                 />
-                <div className="relative">
-                  <Input
-                    placeholder="API Key (optional)"
-                    type={showNewApiKey ? "text" : "password"}
-                    value={newAccount.api_key || ''}
-                    onChange={(e) => setNewAccount({ ...newAccount, api_key: e.target.value })}
-                    className="text-sm pr-10 truncate"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowNewApiKey(!showNewApiKey)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-700">AI Model</label>
+                  <select
+                    value={selectedModelId}
+                    onChange={(e) => setSelectedModelId(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    {showNewApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
+                    <option value="">Select an AI model</option>
+                    {availableModels.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.display_name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
+
+                {selectedModelId && getSelectedModel() && (
+                  <div className="text-sm p-3 bg-gray-50 rounded border space-y-1">
+                    <div className="text-gray-600">
+                      <span className="font-semibold">Model:</span> {getSelectedModel()?.model}
+                    </div>
+                    <div className="text-gray-600 truncate">
+                      <span className="font-semibold">Endpoint:</span> {getSelectedModel()?.base_url}
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-700">Initial Capital</label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    placeholder="10000"
+                    value={initialCapital}
+                    onChange={(e) => setInitialCapital(e.target.value)}
+                    className="text-sm"
+                  />
+                </div>
+
                 <div className="flex gap-2">
                   <Button onClick={handleCreateAccount} disabled={loading}>
                     {loading ? 'Creating...' : 'Create Account'}
@@ -390,8 +349,9 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
                   <Button
                     onClick={() => {
                       setShowAddForm(false)
-                      setShowNewApiKey(false)
-                      setNewAccount({ name: '', model: '', base_url: '', api_key: '' })
+                      setName('')
+                      setSelectedModelId('')
+                      setInitialCapital('10000')
                     }}
                     variant="outline"
                     disabled={loading}

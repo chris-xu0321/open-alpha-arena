@@ -309,3 +309,6 @@ data.db
 backend/tests/
 .vscode/
 backend/.DS_Store
+
+# AI model configuration with API keys
+backend/ai_models.json

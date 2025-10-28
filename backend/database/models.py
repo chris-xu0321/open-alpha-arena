@@ -43,9 +43,10 @@ class Account(Base):
     is_active = Column(String(10), nullable=False, default="true")
     
     # AI Model Configuration (for AI accounts)
-    model = Column(String(100), nullable=True, default="gpt-4")  # AI model name
-    base_url = Column(String(500), nullable=True, default="https://api.openai.com/v1")  # API endpoint
-    api_key = Column(String(500), nullable=True)  # API key for authentication
+    ai_model_id = Column(String(100), nullable=True)  # Reference to ai_models.json model ID
+    model = Column(String(100), nullable=True, default="gpt-4")  # Cached model name for display
+    base_url = Column(String(500), nullable=True, default="https://api.openai.com/v1")  # Cached API endpoint for display
+    # NOTE: api_key removed - now stored securely in backend/ai_models.json
     
     # Trading Account Balances (USD for CRYPTO market)
     initial_capital = Column(DECIMAL(18, 2), nullable=False, default=10000.00)

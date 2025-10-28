@@ -1,0 +1,46 @@
+{
+  "models": [
+    {
+      "id": "gpt-4o-mini",
+      "display_name": "GPT-4o Mini",
+      "model": "gpt-4o-mini",
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "sk-your-openai-api-key-here"
+    },
+    {
+      "id": "gpt-4-turbo",
+      "display_name": "GPT-4 Turbo",
+      "model": "gpt-4-turbo",
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "sk-your-openai-api-key-here"
+    },
+    {
+      "id": "gpt-4",
+      "display_name": "GPT-4",
+      "model": "gpt-4",
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "sk-your-openai-api-key-here"
+    },
+    {
+      "id": "gpt-3.5-turbo",
+      "display_name": "GPT-3.5 Turbo",
+      "model": "gpt-3.5-turbo",
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "sk-your-openai-api-key-here"
+    },
+    {
+      "id": "claude-3-opus",
+      "display_name": "Claude 3 Opus",
+      "model": "claude-3-opus-20240229",
+      "base_url": "https://api.anthropic.com/v1",
+      "api_key": "sk-ant-your-anthropic-api-key-here"
+    },
+    {
+      "id": "claude-3-sonnet",
+      "display_name": "Claude 3 Sonnet",
+      "model": "claude-3-sonnet-20240229",
+      "base_url": "https://api.anthropic.com/v1",
+      "api_key": "sk-ant-your-anthropic-api-key-here"
+    }
+  ]
+}

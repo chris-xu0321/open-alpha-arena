@@ -4,10 +4,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 import os
+import logging
 
 from database.connection import engine, Base, SessionLocal
 from database.models import TradingConfig, User, Account, SystemConfig
 from config.settings import DEFAULT_TRADING_CONFIGS
+
+logger = logging.getLogger(__name__)
 app = FastAPI(title="Simulated Crypto Trading API")
 
 # Health check endpoint
@@ -34,6 +37,15 @@ if os.path.exists(static_dir):
 
 @app.on_event("startup")
 def on_startup():
+    # Load and validate AI models configuration (MUST be done before creating accounts)
+    from services.ai_config_loader import ai_config
+    try:
+        ai_config.load_config()
+    except Exception as e:
+        logger.error(f"Failed to load AI models configuration: {e}")
+        logger.error("Application will start but AI trading will be disabled")
+        logger.error("Please create backend/ai_models.json from ai_models.example.json")
+
     # Create tables
     Base.metadata.create_all(bind=engine)
     # Seed trading configs if empty
@@ -92,15 +104,21 @@ def on_startup():
         # Ensure default user has at least one account
         default_accounts = db.query(Account).filter(Account.user_id == default_user.id).all()
         if len(default_accounts) == 0:
+            # Get first available AI model (default to gpt-4o-mini)
+            ai_model_ids = ai_config.get_model_ids()
+            default_ai_model_id = ai_model_ids[0] if ai_model_ids else "gpt-4o-mini"
+            model_config = ai_config.get_model_config(default_ai_model_id)
+
             # Create default account
             default_account = Account(
                 user_id=default_user.id,
                 version="v1",
                 name="GPT",
                 account_type="AI",
-                model="gpt-5-mini",
-                base_url="https://api.openai.com/v1",
-                api_key="default-key-please-update-in-settings",
+                ai_model_id=default_ai_model_id,
+                model=model_config.model if model_config else "gpt-4o-mini",
+                base_url=model_config.base_url if model_config else "https://api.openai.com/v1",
+                # NOTE: api_key removed - stored securely in backend/ai_models.json
                 initial_capital=10000.0,  # $10,000 starting capital for crypto trading
                 current_cash=10000.0,
                 frozen_cash=0.0,

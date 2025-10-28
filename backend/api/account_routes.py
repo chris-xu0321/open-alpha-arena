@@ -12,6 +12,7 @@ import logging
 
 from database.connection import SessionLocal
 from database.models import Account, Position, Trade, CryptoPrice
+from services.ai_config_loader import ai_config
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,17 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+@router.get("/available-models")
+async def get_available_models():
+    """Get list of available AI models (without API keys for security)"""
+    try:
+        models = ai_config.get_all_models()
+        return {"models": models}
+    except Exception as e:
+        logger.error(f"Failed to get available models: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get available models: {str(e)}")
 
 
 @router.get("/list")
@@ -45,9 +57,10 @@ async def list_all_accounts(db: Session = Depends(get_db)):
                 "initial_capital": float(account.initial_capital),
                 "current_cash": float(account.current_cash),
                 "frozen_cash": float(account.frozen_cash),
+                "ai_model_id": account.ai_model_id,
                 "model": account.model,
                 "base_url": account.base_url,
-                "api_key": account.api_key,
+                # NOTE: api_key intentionally excluded for security
                 "is_active": account.is_active == "true"
             })
         
@@ -171,16 +184,26 @@ async def create_new_account(payload: dict, db: Session = Depends(get_db)):
         # Validate required fields
         if "name" not in payload or not payload["name"]:
             raise HTTPException(status_code=400, detail="Account name is required")
-        
+
+        # Validate and get AI model configuration
+        ai_model_id = payload.get("ai_model_id")
+        model_config = None
+
+        if ai_model_id:
+            if not ai_config.is_valid_model_id(ai_model_id):
+                raise HTTPException(status_code=400, detail=f"Invalid AI model ID: {ai_model_id}")
+            model_config = ai_config.get_model_config(ai_model_id)
+
         # Create new account
         new_account = Account(
             user_id=user.id,
             version="v1",
             name=payload["name"],
             account_type=payload.get("account_type", "AI"),
-            model=payload.get("model", "gpt-4-turbo"),
-            base_url=payload.get("base_url", "https://api.openai.com/v1"),
-            api_key=payload.get("api_key", ""),
+            ai_model_id=ai_model_id,
+            model=model_config.model if model_config else "gpt-4o-mini",
+            base_url=model_config.base_url if model_config else "https://api.openai.com/v1",
+            # NOTE: api_key removed - stored securely in backend config
             initial_capital=float(payload.get("initial_capital", 10000.0)),
             current_cash=float(payload.get("initial_capital", 10000.0)),
             frozen_cash=0.0,
@@ -208,9 +231,10 @@ async def create_new_account(payload: dict, db: Session = Depends(get_db)):
             "initial_capital": float(new_account.initial_capital),
             "current_cash": float(new_account.current_cash),
             "frozen_cash": float(new_account.frozen_cash),
+            "ai_model_id": new_account.ai_model_id,
             "model": new_account.model,
             "base_url": new_account.base_url,
-            "api_key": new_account.api_key,
+            # NOTE: api_key intentionally excluded for security
             "is_active": new_account.is_active == "true"
         }
     except HTTPException:
@@ -234,25 +258,25 @@ async def update_account_settings(account_id: int, payload: dict, db: Session = 
         if not account:
             raise HTTPException(status_code=404, detail="Account not found")
         
-        # Update fields if provided (allow empty strings for api_key and base_url)
+        # Only allow updating name and current_cash
+        # AI configuration (model, base_url, api_key) is managed in backend config file
+
         if "name" in payload:
             if payload["name"]:
                 account.name = payload["name"]
                 logger.info(f"Updated name to: {payload['name']}")
             else:
                 raise HTTPException(status_code=400, detail="Account name cannot be empty")
-        
-        if "model" in payload:
-            account.model = payload["model"] if payload["model"] else None
-            logger.info(f"Updated model to: {account.model}")
-        
-        if "base_url" in payload:
-            account.base_url = payload["base_url"]
-            logger.info(f"Updated base_url to: {account.base_url}")
-        
-        if "api_key" in payload:
-            account.api_key = payload["api_key"]
-            logger.info(f"Updated api_key (length: {len(payload['api_key']) if payload['api_key'] else 0})")
+
+        if "current_cash" in payload:
+            try:
+                new_cash = float(payload["current_cash"])
+                if new_cash < 0:
+                    raise HTTPException(status_code=400, detail="Current cash cannot be negative")
+                account.current_cash = new_cash
+                logger.info(f"Updated current_cash to: {new_cash}")
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail="Invalid current_cash value")
         
         db.commit()
         db.refresh(account)
@@ -268,7 +292,7 @@ async def update_account_settings(account_id: int, payload: dict, db: Session = 
         
         from database.models import User
         user = db.query(User).filter(User.id == account.user_id).first()
-        
+
         return {
             "id": account.id,
             "user_id": account.user_id,
@@ -278,9 +302,10 @@ async def update_account_settings(account_id: int, payload: dict, db: Session = 
             "initial_capital": float(account.initial_capital),
             "current_cash": float(account.current_cash),
             "frozen_cash": float(account.frozen_cash),
+            "ai_model_id": account.ai_model_id,
             "model": account.model,
             "base_url": account.base_url,
-            "api_key": account.api_key,
+            # NOTE: api_key intentionally excluded for security
             "is_active": account.is_active == "true"
         }
     except HTTPException:
@@ -446,102 +471,4 @@ async def get_asset_curve_by_timeframe(
         raise HTTPException(status_code=500, detail=f"Failed to get asset curve for timeframe: {str(e)}")
 
 
-@router.post("/test-llm")
-async def test_llm_connection(payload: dict):
-    """Test LLM connection with provided credentials"""
-    try:
-        import requests
-        import json
-        
-        model = payload.get("model", "gpt-3.5-turbo")
-        base_url = payload.get("base_url", "https://api.openai.com/v1")
-        api_key = payload.get("api_key", "")
-        
-        if not api_key:
-            return {"success": False, "message": "API key is required"}
-        
-        if not base_url:
-            return {"success": False, "message": "Base URL is required"}
-        
-        # Clean up base_url - ensure it doesn't end with slash
-        if base_url.endswith('/'):
-            base_url = base_url.rstrip('/')
-        
-        # Test the connection with a simple completion request
-        try:
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}"
-            }
-            
-            # Use OpenAI-compatible chat completions format
-            payload_data = {
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": "Say 'Connection test successful' if you can read this."}
-                ],
-                "max_tokens": 50,
-                "temperature": 0
-            }
-            
-            # Construct API endpoint URL
-            api_endpoint = f"{base_url}/chat/completions"
-            
-            # Make the request
-            response = requests.post(
-                api_endpoint,
-                headers=headers,
-                json=payload_data,
-                timeout=10.0,
-                verify=False  # Disable SSL verification for custom AI endpoints
-            )
-            
-            # Check response status
-            if response.status_code == 200:
-                result = response.json()
-                
-                # Extract text from OpenAI-compatible response format
-                if "choices" in result and len(result["choices"]) > 0:
-                    message = result["choices"][0].get("message", {})
-                    content = message.get("content", "")
-                    
-                    if content:
-                        logger.info(f"LLM test successful for model {model} at {base_url}")
-                        return {
-                            "success": True, 
-                            "message": f"Connection successful! Model {model} responded correctly.",
-                            "response": content
-                        }
-                    else:
-                        return {"success": False, "message": "LLM responded but with empty content"}
-                else:
-                    return {"success": False, "message": "Unexpected response format from LLM"}
-                    
-            elif response.status_code == 401:
-                return {"success": False, "message": "Authentication failed. Please check your API key."}
-            elif response.status_code == 403:
-                return {"success": False, "message": "Permission denied. Your API key may not have access to this model."}
-            elif response.status_code == 429:
-                return {"success": False, "message": "Rate limit exceeded. Please try again later."}
-            elif response.status_code == 404:
-                return {"success": False, "message": f"Model '{model}' not found or endpoint not available."}
-            else:
-                return {"success": False, "message": f"API returned status {response.status_code}: {response.text}"}
-                
-        except requests.ConnectionError:
-            return {"success": False, "message": f"Failed to connect to {base_url}. Please check the base URL."}
-        except requests.Timeout:
-            return {"success": False, "message": "Request timed out. The LLM service may be unavailable."}
-        except json.JSONDecodeError:
-            return {"success": False, "message": "Invalid JSON response from LLM service."}
-        except requests.RequestException as e:
-            logger.error(f"LLM test request failed: {e}", exc_info=True)
-            return {"success": False, "message": f"Connection test failed: {str(e)}"}
-        except Exception as e:
-            logger.error(f"LLM test failed: {e}", exc_info=True)
-            return {"success": False, "message": f"Connection test failed: {str(e)}"}
-            
-    except Exception as e:
-        logger.error(f"Failed to test LLM connection: {e}", exc_info=True)
-        return {"success": False, "message": f"Failed to test LLM connection: {str(e)}"}
+# NOTE: test-llm endpoint removed - API keys are now managed in backend config
