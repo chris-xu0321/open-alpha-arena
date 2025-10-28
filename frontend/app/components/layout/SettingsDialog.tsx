@@ -9,8 +9,8 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Trash2, Plus, Pencil } from 'lucide-react'
-import { 
+import { Trash2, Plus, Pencil, Eye, EyeOff } from 'lucide-react'
+import {
   getAccounts as getAccounts,
   createAccount as createAccount,
   updateAccount as updateAccount,
@@ -46,17 +46,19 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
   const [error, setError] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
+  const [showNewApiKey, setShowNewApiKey] = useState(false)
+  const [showEditApiKey, setShowEditApiKey] = useState(false)
   const [newAccount, setNewAccount] = useState<AIAccountCreate>({
     name: '',
     model: '',
     base_url: '',
-    api_key: 'default-key-please-update-in-settings',
+    api_key: '',
   })
   const [editAccount, setEditAccount] = useState<AIAccountCreate>({
     name: '',
     model: '',
     base_url: '',
-    api_key: 'default-key-please-update-in-settings',
+    api_key: '',
   })
 
   const loadAccounts = async () => {
@@ -86,21 +88,28 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
     try {
       setLoading(true)
       setError(null)
-      
+
       if (!newAccount.name || !newAccount.name.trim()) {
         setError('Account name is required')
         setLoading(false)
         return
       }
-      
-      console.log('Creating account with data:', newAccount)
-      await createAccount(newAccount)
-      setNewAccount({ name: '', model: '', base_url: '', api_key: 'default-key-please-update-in-settings' })
+
+      // Set default API key if not provided
+      const accountToCreate = {
+        ...newAccount,
+        api_key: newAccount.api_key || 'default-key-please-update-in-settings'
+      }
+
+      console.log('Creating account with data:', accountToCreate)
+      await createAccount(accountToCreate)
+      setNewAccount({ name: '', model: '', base_url: '', api_key: '' })
       setShowAddForm(false)
+      setShowNewApiKey(false)
       await loadAccounts()
-      
+
       toast.success('Account created successfully!')
-      
+
       // Notify parent component that account was created
       onAccountUpdated?.()
     } catch (error) {
@@ -196,14 +205,15 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
 
   const cancelEdit = () => {
     setEditingId(null)
-    setEditAccount({ name: '', model: '', base_url: '', api_key: 'default-key-please-update-in-settings' })
+    setEditAccount({ name: '', model: '', base_url: '', api_key: '' })
+    setShowEditApiKey(false)
     setTestResult(null)
     setError(null)
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px]">
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle>Account Management</DialogTitle>
           <DialogDescription>
@@ -212,12 +222,12 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
         </DialogHeader>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded">
+          <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded text-sm">
             {error}
           </div>
         )}
 
-        <div className="space-y-6">
+        <div className="space-y-6 overflow-y-auto flex-1 pr-2">
           {/* Existing Accounts */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -245,28 +255,41 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
                             placeholder="Account name"
                             value={editAccount.name || ''}
                             onChange={(e) => setEditAccount({ ...editAccount, name: e.target.value })}
+                            className="text-sm"
                           />
                           <Input
                             placeholder="Model"
                             value={editAccount.model || ''}
                             onChange={(e) => setEditAccount({ ...editAccount, model: e.target.value })}
+                            className="text-sm"
                           />
                         </div>
                         <Input
                           placeholder="Base URL"
                           value={editAccount.base_url || ''}
                           onChange={(e) => setEditAccount({ ...editAccount, base_url: e.target.value })}
+                          className="text-sm truncate"
                         />
-                        <Input
-                          placeholder="API Key"
-                          type="password"
-                          value={editAccount.api_key || ''}
-                          onChange={(e) => setEditAccount({ ...editAccount, api_key: e.target.value })}
-                        />
+                        <div className="relative">
+                          <Input
+                            placeholder="API Key"
+                            type={showEditApiKey ? "text" : "password"}
+                            value={editAccount.api_key || ''}
+                            onChange={(e) => setEditAccount({ ...editAccount, api_key: e.target.value })}
+                            className="text-sm pr-10 truncate"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowEditApiKey(!showEditApiKey)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                          >
+                            {showEditApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
                         {testResult && (
-                          <div className={`text-sm p-2 rounded ${
-                            testResult.includes('❌') 
-                              ? 'bg-red-50 text-red-700 border border-red-200' 
+                          <div className={`text-sm p-2 rounded break-words ${
+                            testResult.includes('❌')
+                              ? 'bg-red-50 text-red-700 border border-red-200'
                               : 'bg-green-50 text-green-700 border border-green-200'
                           }`}>
                             {testResult}
@@ -329,31 +352,49 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
                     placeholder="Account name"
                     value={newAccount.name || ''}
                     onChange={(e) => setNewAccount({ ...newAccount, name: e.target.value })}
+                    className="text-sm"
                   />
                   <Input
                     placeholder="Model (e.g., gpt-4)"
                     value={newAccount.model || ''}
                     onChange={(e) => setNewAccount({ ...newAccount, model: e.target.value })}
+                    className="text-sm"
                   />
                 </div>
                 <Input
                   placeholder="Base URL (e.g., https://api.openai.com/v1)"
                   value={newAccount.base_url || ''}
                   onChange={(e) => setNewAccount({ ...newAccount, base_url: e.target.value })}
+                  className="text-sm truncate"
                 />
-                <Input
-                  placeholder="API Key"
-                  type="password"
-                  value={newAccount.api_key || ''}
-                  onChange={(e) => setNewAccount({ ...newAccount, api_key: e.target.value })}
-                />
+                <div className="relative">
+                  <Input
+                    placeholder="API Key (optional)"
+                    type={showNewApiKey ? "text" : "password"}
+                    value={newAccount.api_key || ''}
+                    onChange={(e) => setNewAccount({ ...newAccount, api_key: e.target.value })}
+                    className="text-sm pr-10 truncate"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewApiKey(!showNewApiKey)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                  >
+                    {showNewApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
                 <div className="flex gap-2">
                   <Button onClick={handleCreateAccount} disabled={loading}>
-                    Create Account
+                    {loading ? 'Creating...' : 'Create Account'}
                   </Button>
-                  <Button 
-                    onClick={() => setShowAddForm(false)} 
+                  <Button
+                    onClick={() => {
+                      setShowAddForm(false)
+                      setShowNewApiKey(false)
+                      setNewAccount({ name: '', model: '', base_url: '', api_key: '' })
+                    }}
                     variant="outline"
+                    disabled={loading}
                   >
                     Cancel
                   </Button>

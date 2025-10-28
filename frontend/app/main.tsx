@@ -70,6 +70,24 @@ function App() {
   const [currentPage, setCurrentPage] = useState<string>('comprehensive')
   const [accountRefreshTrigger, setAccountRefreshTrigger] = useState<number>(0)
   const wsRef = useRef<WebSocket | null>(null)
+  const refreshTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const lastAiDecisionIdRef = useRef<number | null>(null)
+
+  // Helper function to request snapshot and reset 5-minute timer
+  const requestSnapshot = () => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'get_snapshot' }))
+
+      // Reset the 5-minute fallback timer
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current)
+      }
+      refreshTimerRef.current = setTimeout(() => {
+        console.log('5-minute fallback refresh triggered')
+        requestSnapshot()
+      }, 300000) // 5 minutes = 300,000ms
+    }
+  }
 
   useEffect(() => {
     let reconnectTimer: NodeJS.Timeout | null = null
@@ -98,23 +116,41 @@ function App() {
               if (msg.account) {
                 setAccount(msg.account)
               }
-              // request initial snapshot
-              ws!.send(JSON.stringify({ type: 'get_snapshot' }))
-            } else if (msg.type === 'snapshot') {
+              // request initial snapshot and start 5-minute timer
+              requestSnapshot()
+            } else if (msg.type === 'snapshot' || msg.type === 'snapshot_fast' || msg.type === 'snapshot_full') {
+              // Update all state with snapshot data
               setOverview(msg.overview)
               setPositions(msg.positions)
               setOrders(msg.orders)
               setTrades(msg.trades || [])
-              setAiDecisions(msg.ai_decisions || [])
+
+              // Check for new AI decisions
+              const newAiDecisions = msg.ai_decisions || []
+              if (newAiDecisions.length > 0) {
+                const latestDecisionId = newAiDecisions[0].id
+
+                // If we have a new AI decision (different from last tracked)
+                if (lastAiDecisionIdRef.current !== null && latestDecisionId !== lastAiDecisionIdRef.current) {
+                  console.log('New AI decision detected, requesting fresh snapshot')
+                  // Request immediate refresh to get latest data
+                  setTimeout(() => requestSnapshot(), 500) // Small delay to avoid rapid-fire requests
+                }
+
+                // Update the last decision ID tracker
+                lastAiDecisionIdRef.current = latestDecisionId
+              }
+
+              setAiDecisions(newAiDecisions)
               setAllAssetCurves(msg.all_asset_curves || [])
             } else if (msg.type === 'trades') {
               setTrades(msg.trades || [])
             } else if (msg.type === 'order_filled') {
               toast.success('Order filled')
-              ws!.send(JSON.stringify({ type: 'get_snapshot' }))
+              requestSnapshot()
             } else if (msg.type === 'order_pending') {
               toast('Order placed, waiting for fill', { icon: '⏳' })
-              ws!.send(JSON.stringify({ type: 'get_snapshot' }))
+              requestSnapshot()
             } else if (msg.type === 'user_switched') {
               toast.success(`Switched to ${msg.user.username}`)
               setUser(msg.user)
@@ -178,6 +214,9 @@ function App() {
       if (reconnectTimer) {
         clearTimeout(reconnectTimer)
       }
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current)
+      }
       // Don't close the socket in cleanup to avoid issues with React StrictMode
     }
   }, [])
@@ -230,11 +269,9 @@ function App() {
   const handleAccountUpdated = () => {
     // Increment refresh trigger to force AccountSelector to refresh
     setAccountRefreshTrigger(prev => prev + 1)
-    
+
     // Also refresh the current data snapshot
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'get_snapshot' }))
-    }
+    requestSnapshot()
   }
 
   if (!user || !account || !overview) return <div className="p-8">Connecting to trading server...</div>
@@ -261,11 +298,7 @@ function App() {
               onSwitchUser={switchUser}
               onSwitchAccount={switchAccount}
               accountRefreshTrigger={accountRefreshTrigger}
-              onRefreshData={() => {
-                if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                  wsRef.current.send(JSON.stringify({ type: 'get_snapshot' }))
-                }
-              }}
+              onRefreshData={requestSnapshot}
             />
           </main>
         )
