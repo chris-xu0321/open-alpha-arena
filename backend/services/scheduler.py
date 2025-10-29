@@ -44,13 +44,13 @@ class TaskScheduler:
         """Check if scheduler is running"""
         return self._started and self.scheduler and self.scheduler.running
     
-    def add_account_snapshot_task(self, account_id: int, interval_seconds: int = 10):
+    def add_account_snapshot_task(self, account_id: int, interval_seconds: int = 300):
         """
         Add snapshot update task for account
 
         Args:
             account_id: Account ID
-            interval_seconds: Update interval (seconds), default 10 seconds
+            interval_seconds: Update interval (seconds), default 300 seconds (5 minutes)
         """
         if not self.is_running():
             self.start()
@@ -262,8 +262,8 @@ def stop_scheduler():
     task_scheduler.shutdown()
 
 
-def add_account_snapshot_job(account_id: int, interval_seconds: int = 10):
-    """Convenience function to add snapshot task for account"""
+def add_account_snapshot_job(account_id: int, interval_seconds: int = 300):
+    """Convenience function to add snapshot task for account (default 5 minutes)"""
     task_scheduler.add_account_snapshot_task(account_id, interval_seconds)
 
 

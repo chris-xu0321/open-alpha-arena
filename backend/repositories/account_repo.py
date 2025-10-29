@@ -139,8 +139,68 @@ def activate_account(db: Session, account_id: int) -> Optional[Account]:
     account = db.query(Account).filter(Account.id == account_id).first()
     if not account:
         return None
-    
+
     account.is_active = "true"
     db.commit()
     db.refresh(account)
     return account
+
+
+def delete_account(db: Session, account_id: int, user_id: int) -> dict:
+    """
+    Delete account and all related data (cascade delete)
+
+    Args:
+        db: Database session
+        account_id: Account ID to delete
+        user_id: User ID for authorization check
+
+    Returns:
+        dict: {"success": bool, "message": str}
+    """
+    from database.models import Position, Order, Trade, AIDecisionLog
+
+    # 1. Verify account exists and belongs to user
+    account = db.query(Account).filter(
+        Account.id == account_id,
+        Account.user_id == user_id
+    ).first()
+
+    if not account:
+        return {"success": False, "message": "Account not found or access denied"}
+
+    # 2. Check if it's the last account for this user
+    account_count = db.query(Account).filter(
+        Account.user_id == user_id,
+        Account.is_active == "true"
+    ).count()
+
+    if account_count <= 1:
+        return {"success": False, "message": "Cannot delete the last account"}
+
+    try:
+        # Store account name for success message
+        account_name = account.name
+
+        # 3. Cascade delete related data (if not configured in DB models)
+        # Delete AI decisions first (foreign key to orders)
+        db.query(AIDecisionLog).filter(AIDecisionLog.account_id == account_id).delete()
+
+        # Delete trades (foreign key to orders)
+        db.query(Trade).filter(Trade.account_id == account_id).delete()
+
+        # Delete orders
+        db.query(Order).filter(Order.account_id == account_id).delete()
+
+        # Delete positions
+        db.query(Position).filter(Position.account_id == account_id).delete()
+
+        # 4. Delete the account itself
+        db.delete(account)
+        db.commit()
+
+        return {"success": True, "message": f"Account '{account_name}' deleted successfully"}
+
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "message": f"Error deleting account: {str(e)}"}

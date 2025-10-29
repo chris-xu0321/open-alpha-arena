@@ -71,6 +71,7 @@ function App() {
   const [accountRefreshTrigger, setAccountRefreshTrigger] = useState<number>(0)
   const wsRef = useRef<WebSocket | null>(null)
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const chartRefreshTimerRef = useRef<NodeJS.Timeout | null>(null)
   const lastAiDecisionIdRef = useRef<number | null>(null)
 
   // Helper function to request snapshot and reset 5-minute timer
@@ -85,6 +86,22 @@ function App() {
       refreshTimerRef.current = setTimeout(() => {
         console.log('5-minute fallback refresh triggered')
         requestSnapshot()
+      }, 300000) // 5 minutes = 300,000ms
+    }
+  }
+
+  // Helper function to request asset curve update and reset 5-minute chart timer
+  const requestAssetCurveUpdate = () => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'get_asset_curves', timeframe: '1h' }))
+
+      // Reset the 5-minute chart refresh timer
+      if (chartRefreshTimerRef.current) {
+        clearTimeout(chartRefreshTimerRef.current)
+      }
+      chartRefreshTimerRef.current = setTimeout(() => {
+        console.log('5-minute chart refresh triggered')
+        requestAssetCurveUpdate()
       }, 300000) // 5 minutes = 300,000ms
     }
   }
@@ -118,6 +135,11 @@ function App() {
               }
               // request initial snapshot and start 5-minute timer
               requestSnapshot()
+              // request initial asset curve and start 5-minute chart timer
+              requestAssetCurveUpdate()
+            } else if (msg.type === 'asset_curve_refresh') {
+              // Dedicated asset curve update (triggered by orders or 5-min timer)
+              setAllAssetCurves(msg.all_asset_curves || [])
             } else if (msg.type === 'snapshot' || msg.type === 'snapshot_fast' || msg.type === 'snapshot_full') {
               // Update all state with snapshot data
               setOverview(msg.overview)
@@ -128,13 +150,20 @@ function App() {
               // Check for new AI decisions
               const newAiDecisions = msg.ai_decisions || []
               if (newAiDecisions.length > 0) {
-                const latestDecisionId = newAiDecisions[0].id
+                const latestDecision = newAiDecisions[0]
+                const latestDecisionId = latestDecision.id
+                const latestOperation = latestDecision.operation?.toLowerCase()
 
                 // If we have a new AI decision (different from last tracked)
                 if (lastAiDecisionIdRef.current !== null && latestDecisionId !== lastAiDecisionIdRef.current) {
-                  console.log('New AI decision detected, requesting fresh snapshot')
-                  // Request immediate refresh to get latest data
-                  setTimeout(() => requestSnapshot(), 500) // Small delay to avoid rapid-fire requests
+                  // Only trigger refresh for buy/sell operations, not for hold
+                  if (latestOperation === 'buy' || latestOperation === 'sell') {
+                    console.log(`New AI ${latestOperation} decision detected, requesting fresh snapshot`)
+                    // Request immediate refresh to get latest data
+                    setTimeout(() => requestSnapshot(), 500) // Small delay to avoid rapid-fire requests
+                  } else {
+                    console.log(`New AI ${latestOperation || 'hold'} decision detected, skipping refresh`)
+                  }
                 }
 
                 // Update the last decision ID tracker
@@ -142,12 +171,15 @@ function App() {
               }
 
               setAiDecisions(newAiDecisions)
-              setAllAssetCurves(msg.all_asset_curves || [])
+              // Asset curves are now sent separately via asset_curve_refresh
+              // Don't update from snapshots anymore
             } else if (msg.type === 'trades') {
               setTrades(msg.trades || [])
             } else if (msg.type === 'order_filled') {
               toast.success('Order filled')
               requestSnapshot()
+              // Note: Backend already sends asset_curve_refresh after order fills
+              // No need to request here - just wait for the message
             } else if (msg.type === 'order_pending') {
               toast('Order placed, waiting for fill', { icon: '⏳' })
               requestSnapshot()
@@ -216,6 +248,9 @@ function App() {
       }
       if (refreshTimerRef.current) {
         clearTimeout(refreshTimerRef.current)
+      }
+      if (chartRefreshTimerRef.current) {
+        clearTimeout(chartRefreshTimerRef.current)
       }
       // Don't close the socket in cleanup to avoid issues with React StrictMode
     }

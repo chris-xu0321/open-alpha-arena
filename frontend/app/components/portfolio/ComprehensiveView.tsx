@@ -132,14 +132,16 @@ export default function ComprehensiveView({
     <div className="h-full flex flex-col space-y-6">
 
       {/* Main Content */}
-      <div className="grid grid-cols-5 gap-6 overflow-hidden">
-        {/* Left Side - Asset Curve */}
-        <div className="col-span-3">
-          <AssetCurveWithData data={allAssetCurves} wsRef={wsRef} />
+      <div className="grid grid-cols-5 gap-4 xl:gap-6">
+        {/* Left Side - Asset Curve (40% on XL screens) */}
+        <div className="col-span-5 lg:col-span-3 xl:col-span-2">
+          <div className="min-h-80 md:min-h-96">
+            <AssetCurveWithData data={allAssetCurves} wsRef={wsRef} />
+          </div>
         </div>
 
-        {/* Right Side - Portfolio Tabs */}
-        <div className="col-span-2 overflow-hidden">
+        {/* Right Side - Portfolio Tabs (60% on XL screens) */}
+        <div className="col-span-5 lg:col-span-2 xl:col-span-3">
           <div className="flex justify-end mb-2">
           <AccountSelector
             currentAccount={overview.account}
@@ -147,7 +149,7 @@ export default function ComprehensiveView({
             refreshTrigger={accountRefreshTrigger}
           />
           </div>
-          <Tabs defaultValue="ai-decisions" className="h-full flex flex-col">
+          <Tabs defaultValue="ai-decisions" className="flex flex-col">
             <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="positions">Positions</TabsTrigger>
               <TabsTrigger value="ai-decisions">AI Decisions</TabsTrigger>
@@ -155,20 +157,20 @@ export default function ComprehensiveView({
               <TabsTrigger value="trades">Trades</TabsTrigger>
             </TabsList>
 
-            <div className="flex-1 overflow-hidden">
-              <TabsContent value="positions" className="h-full overflow-y-auto">
+            <div className="flex-1 mt-4">
+              <TabsContent value="positions" className="mt-0 max-h-[800px] overflow-y-auto">
                 <PositionList positions={positions} />
               </TabsContent>
 
-              <TabsContent value="ai-decisions" className="h-full overflow-y-auto">
+              <TabsContent value="ai-decisions" className="mt-0 max-h-[800px] overflow-y-auto">
                 <AIDecisionLog aiDecisions={aiDecisions} />
               </TabsContent>
 
-              <TabsContent value="orders" className="h-full overflow-y-auto">
+              <TabsContent value="orders" className="mt-0 max-h-[800px] overflow-y-auto">
                 <OrderBook orders={orders} onCancelOrder={cancelOrder} />
               </TabsContent>
 
-              <TabsContent value="trades" className="h-full overflow-y-auto">
+              <TabsContent value="trades" className="mt-0 max-h-[800px] overflow-y-auto">
                 <TradeHistory trades={trades} />
               </TabsContent>
             </div>
@@ -195,29 +197,29 @@ function OrderBook({ orders, onCancelOrder }: { orders: Order[], onCancelOrder: 
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Time</TableHead>
-            <TableHead>Order No</TableHead>
-            <TableHead>Symbol</TableHead>
-            <TableHead>Side</TableHead>
-            <TableHead>Type</TableHead>
-            <TableHead>Price</TableHead>
-            <TableHead>Qty</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Actions</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm">Time</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm">Order No</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm">Symbol</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm">Side</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm">Type</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm">Price</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm">Qty</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm">Status</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {orders.map(o => (
             <TableRow key={o.id}>
-              <TableCell>{o.id}</TableCell>
-              <TableCell>{o.order_no}</TableCell>
-              <TableCell>{o.symbol}.{o.market}</TableCell>
-              <TableCell>{o.side}</TableCell>
-              <TableCell>{o.order_type}</TableCell>
-              <TableCell>{formatPrice(o)}</TableCell>
-              <TableCell>{o.quantity}</TableCell>
-              <TableCell>{o.status}</TableCell>
-              <TableCell>
+              <TableCell className="px-2 py-1.5 text-sm">{o.id}</TableCell>
+              <TableCell className="px-2 py-1.5 text-sm">{o.order_no}</TableCell>
+              <TableCell className="px-2 py-1.5 text-sm">{o.symbol}.{o.market}</TableCell>
+              <TableCell className="px-2 py-1.5 text-sm">{o.side}</TableCell>
+              <TableCell className="px-2 py-1.5 text-sm">{o.order_type}</TableCell>
+              <TableCell className="px-2 py-1.5 text-sm">{formatPrice(o)}</TableCell>
+              <TableCell className="px-2 py-1.5 text-sm">{o.quantity}</TableCell>
+              <TableCell className="px-2 py-1.5 text-sm">{o.status}</TableCell>
+              <TableCell className="px-2 py-1.5 text-sm">
                 {o.status === 'PENDING' ? (
                   <Button
                     variant="destructive"
@@ -243,25 +245,25 @@ function PositionList({ positions }: { positions: Position[] }) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Symbol</TableHead>
-            <TableHead>Name</TableHead>
-            <TableHead>Qty</TableHead>
-            <TableHead>Available</TableHead>
-            <TableHead>Avg Cost</TableHead>
-            <TableHead>Last Price</TableHead>
-            <TableHead>Market Value</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm">Symbol</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm">Name</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm">Qty</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm">Avail</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm">Avg Cost</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm">Last Price</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm">Mkt Value</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {positions.map(p => (
             <TableRow key={p.id}>
-              <TableCell>{p.symbol}.{p.market}</TableCell>
-              <TableCell>{p.name}</TableCell>
-              <TableCell>{p.quantity}</TableCell>
-              <TableCell>{p.available_quantity}</TableCell>
-              <TableCell>{p.avg_cost.toFixed(4)}</TableCell>
-              <TableCell>{p.last_price != null ? p.last_price.toFixed(4) : '-'}</TableCell>
-              <TableCell>{p.market_value != null ? `$${p.market_value.toFixed(2)}` : '-'}</TableCell>
+              <TableCell className="px-2 py-1.5 text-sm">{p.symbol}.{p.market}</TableCell>
+              <TableCell className="px-2 py-1.5 text-sm truncate max-w-[100px]" title={p.name}>{p.name}</TableCell>
+              <TableCell className="px-2 py-1.5 text-sm">{p.quantity}</TableCell>
+              <TableCell className="px-2 py-1.5 text-sm">{p.available_quantity}</TableCell>
+              <TableCell className="px-2 py-1.5 text-sm">{p.avg_cost.toFixed(4)}</TableCell>
+              <TableCell className="px-2 py-1.5 text-sm">{p.last_price != null ? p.last_price.toFixed(4) : '-'}</TableCell>
+              <TableCell className="px-2 py-1.5 text-sm">{p.market_value != null ? `$${p.market_value.toFixed(2)}` : '-'}</TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -277,25 +279,25 @@ function TradeHistory({ trades }: { trades: Trade[] }) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Time</TableHead>
-            <TableHead>Order ID</TableHead>
-            <TableHead>Symbol</TableHead>
-            <TableHead>Side</TableHead>
-            <TableHead>Price</TableHead>
-            <TableHead>Qty</TableHead>
-            <TableHead>Commission</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm">Time</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm">Order ID</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm">Symbol</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm">Side</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm">Price</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm">Qty</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm">Comm</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {trades.map(t => (
             <TableRow key={t.id}>
-              <TableCell>{new Date(t.trade_time).toLocaleString()}</TableCell>
-              <TableCell>{t.order_id}</TableCell>
-              <TableCell>{t.symbol}.{t.market}</TableCell>
-              <TableCell>{t.side}</TableCell>
-              <TableCell>{t.price.toFixed(2)}</TableCell>
-              <TableCell>{t.quantity}</TableCell>
-              <TableCell>{t.commission.toFixed(2)}</TableCell>
+              <TableCell className="px-2 py-1.5 text-sm">{new Date(t.trade_time).toLocaleString()}</TableCell>
+              <TableCell className="px-2 py-1.5 text-sm">{t.order_id}</TableCell>
+              <TableCell className="px-2 py-1.5 text-sm">{t.symbol}.{t.market}</TableCell>
+              <TableCell className="px-2 py-1.5 text-sm">{t.side}</TableCell>
+              <TableCell className="px-2 py-1.5 text-sm">{t.price.toFixed(2)}</TableCell>
+              <TableCell className="px-2 py-1.5 text-sm">{t.quantity}</TableCell>
+              <TableCell className="px-2 py-1.5 text-sm">{t.commission.toFixed(2)}</TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -306,27 +308,26 @@ function TradeHistory({ trades }: { trades: Trade[] }) {
 
 // AI Decision Log Component
 function AIDecisionLog({ aiDecisions }: { aiDecisions: AIDecision[] }) {
+  // Limit to 15 most recent decisions
+  const displayDecisions = aiDecisions.slice(0, 15)
+
   return (
-    <div>
+    <div className="max-h-[600px] overflow-y-auto overflow-x-hidden">
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Time</TableHead>
-            <TableHead>Operation</TableHead>
-            <TableHead>Symbol</TableHead>
-            <TableHead>Prev %</TableHead>
-            <TableHead>Target %</TableHead>
-            <TableHead>Balance</TableHead>
-            <TableHead>Executed</TableHead>
-            <TableHead>Reason</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm w-[140px]">Time</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm w-[100px]">Operation</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm w-[80px]">Executed</TableHead>
+            <TableHead className="px-2 py-1.5 text-sm">Reason</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {aiDecisions.map(d => (
+          {displayDecisions.map(d => (
             <TableRow key={d.id}>
-              <TableCell>{new Date(d.decision_time).toLocaleString()}</TableCell>
-              <TableCell>
-                <span className={`px-2 py-1 rounded text-xs font-medium ${
+              <TableCell className="px-2 py-1.5 text-sm align-top">{new Date(d.decision_time).toLocaleString()}</TableCell>
+              <TableCell className="px-2 py-1.5 text-sm align-top">
+                <span className={`px-1.5 py-0.5 rounded text-xs font-medium whitespace-nowrap ${
                   d.operation === 'buy' ? 'bg-green-100 text-green-800' :
                   d.operation === 'sell' ? 'bg-red-100 text-red-800' :
                   'bg-gray-100 text-gray-800'
@@ -334,18 +335,14 @@ function AIDecisionLog({ aiDecisions }: { aiDecisions: AIDecision[] }) {
                   {d.operation.toUpperCase()}
                 </span>
               </TableCell>
-              <TableCell>{d.symbol || '-'}</TableCell>
-              <TableCell>{(d.prev_portion * 100).toFixed(2)}%</TableCell>
-              <TableCell>{(d.target_portion * 100).toFixed(2)}%</TableCell>
-              <TableCell>${d.total_balance.toFixed(2)}</TableCell>
-              <TableCell>
-                <span className={`px-2 py-1 rounded text-xs font-medium ${
+              <TableCell className="px-2 py-1.5 text-sm align-top">
+                <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
                   d.executed === 'true' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
                 }`}>
-                  {d.executed === 'true' ? 'Yes' : 'No'}
+                  {d.executed === 'true' ? 'Y' : 'N'}
                 </span>
               </TableCell>
-              <TableCell className="max-w-xs truncate" title={d.reason}>
+              <TableCell className="px-2 py-1.5 text-sm align-top whitespace-normal break-words">
                 {d.reason}
               </TableCell>
             </TableRow>

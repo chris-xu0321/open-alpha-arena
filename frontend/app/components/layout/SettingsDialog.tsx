@@ -9,11 +9,12 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Plus, Pencil } from 'lucide-react'
+import { Plus, Pencil, Trash2 } from 'lucide-react'
 import {
   getAccounts,
   createAccount,
   updateAccount,
+  deleteAccount,
   getAvailableModels,
   type TradingAccount,
   type TradingAccountCreate,
@@ -33,6 +34,7 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
   const [loading, setLoading] = useState(false)
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // Add mode state
@@ -161,6 +163,56 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
     }
   }
 
+  const handleDeleteAccount = async (accountId: number, accountName: string) => {
+    // Show confirmation dialog
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${accountName}"?\n\n` +
+      `This will permanently delete:\n` +
+      `- All positions\n` +
+      `- All orders and trades\n` +
+      `- All AI decision history\n\n` +
+      `This action cannot be undone.`
+    )
+
+    if (!confirmed) return
+
+    try {
+      setDeletingId(accountId)
+      setError(null)
+
+      console.log('Deleting account:', accountId)
+      const result = await deleteAccount(accountId)
+
+      // Show success message
+      toast.success(result.message || 'Account deleted successfully')
+
+      // Refresh account list
+      await loadAccounts()
+
+      // Notify parent to refresh and handle account switching if needed
+      onAccountUpdated?.()
+    } catch (error: any) {
+      console.error('Failed to delete account:', error)
+
+      // Handle specific errors
+      const errorMessage = error.message || 'Failed to delete account'
+
+      if (errorMessage.includes('last account') || errorMessage.includes('at least one')) {
+        toast.error('Cannot delete the last account. You must have at least one account.')
+        setError('Cannot delete the last account. You must have at least one account.')
+      } else if (errorMessage.includes('not found')) {
+        toast.error('Account not found or already deleted.')
+        setError('Account not found or already deleted.')
+        await loadAccounts() // Refresh to show current state
+      } else {
+        toast.error(errorMessage)
+        setError(errorMessage)
+      }
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   const startEdit = (account: TradingAccount) => {
     setEditingId(account.id)
     setEditName(account.name)
@@ -279,8 +331,23 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
                             onClick={() => startEdit(account)}
                             variant="outline"
                             size="sm"
+                            title="Edit account"
                           >
                             <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            onClick={() => handleDeleteAccount(account.id, account.name)}
+                            variant="outline"
+                            size="sm"
+                            disabled={accounts.length <= 1 || deletingId === account.id}
+                            className="text-red-500 hover:text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                            title={accounts.length <= 1 ? "Cannot delete the last account" : "Delete account"}
+                          >
+                            {deletingId === account.id ? (
+                              <span className="h-4 w-4 animate-spin">⏳</span>
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
                           </Button>
                         </div>
                       </div>

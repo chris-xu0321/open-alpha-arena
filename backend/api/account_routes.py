@@ -471,4 +471,65 @@ async def get_asset_curve_by_timeframe(
         raise HTTPException(status_code=500, detail=f"Failed to get asset curve for timeframe: {str(e)}")
 
 
+@router.delete("/{account_id}")
+async def delete_account(account_id: int, db: Session = Depends(get_db)):
+    """Delete an account and all its related data
+
+    Business rules:
+    - Cannot delete the last remaining account for a user
+    - All related data (positions, orders, trades, AI decisions) will be cascade deleted
+    - WebSocket connections and scheduled jobs will be cleaned up
+    """
+    try:
+        from database.models import User
+        from repositories.account_repo import delete_account as repo_delete_account
+
+        # Get the default user (for demo mode)
+        user = db.query(User).filter(User.username == "default").first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Delete account using repository method
+        result = repo_delete_account(db, account_id, user.id)
+
+        if not result["success"]:
+            if "not found" in result["message"] or "access denied" in result["message"]:
+                raise HTTPException(status_code=404, detail=result["message"])
+            elif "last account" in result["message"]:
+                raise HTTPException(status_code=400, detail=result["message"])
+            else:
+                raise HTTPException(status_code=500, detail=result["message"])
+
+        # Cleanup WebSocket connections and scheduler jobs
+        from api.ws import manager
+        from services.scheduler import remove_account_snapshot_job
+
+        # Disconnect all WebSocket clients for this account
+        if account_id in manager.active_connections:
+            for ws in list(manager.active_connections[account_id]):
+                try:
+                    await ws.close()
+                except Exception as e:
+                    logger.warning(f"Failed to close WebSocket for account {account_id}: {e}")
+            del manager.active_connections[account_id]
+
+        # Remove scheduled snapshot job for this account
+        remove_account_snapshot_job(account_id)
+
+        # Reset auto trading job after account deletion
+        try:
+            from services.scheduler import reset_auto_trading_job
+            reset_auto_trading_job()
+            logger.info("Auto trading job reset successfully after account deletion")
+        except Exception as e:
+            logger.warning(f"Failed to reset auto trading job: {e}")
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete account {account_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to delete account: {str(e)}")
+
+
 # NOTE: test-llm endpoint removed - API keys are now managed in backend config

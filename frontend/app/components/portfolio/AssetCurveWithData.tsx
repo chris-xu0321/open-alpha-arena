@@ -58,11 +58,21 @@ export default function AssetCurve({ data: initialData, wsRef }: AssetCurveProps
       try {
         const msg = JSON.parse(event.data)
         if (msg.type === 'asset_curve_data' && msg.timeframe === timeframe) {
+          // Response to explicit get_asset_curve request
           setData(msg.data || [])
           setLoading(false)
           setError(null)
+        } else if (msg.type === 'asset_curve_refresh') {
+          // Dedicated refresh triggered by orders or 5-min timer
+          // Only update if it's for the current timeframe (default is 1h)
+          const msgTimeframe = msg.timeframe || '1h'
+          if (msgTimeframe === timeframe) {
+            setData(msg.all_asset_curves || [])
+            setLoading(false)
+            setError(null)
+          }
         } else if (msg.type === 'asset_curve_update' && msg.timeframe === timeframe) {
-          // Real-time update for current timeframe
+          // Legacy support for real-time updates
           setData(msg.data || [])
         }
       } catch (err) {
@@ -71,7 +81,7 @@ export default function AssetCurve({ data: initialData, wsRef }: AssetCurveProps
     }
 
     wsRef.current.addEventListener('message', handleMessage)
-    
+
     return () => {
       wsRef.current?.removeEventListener('message', handleMessage)
     }

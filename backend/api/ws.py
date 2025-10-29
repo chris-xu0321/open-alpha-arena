@@ -27,8 +27,8 @@ class ConnectionManager:
 
     def register(self, account_id: int, websocket: WebSocket):
         self.active_connections.setdefault(account_id, set()).add(websocket)
-        # Add scheduled snapshot task for new account
-        add_account_snapshot_job(account_id, interval_seconds=10)
+        # Add scheduled snapshot task for new account (5 minutes)
+        add_account_snapshot_job(account_id, interval_seconds=300)
 
     def unregister(self, account_id: int, websocket: WebSocket):
         if account_id in self.active_connections:
@@ -102,6 +102,24 @@ def get_all_asset_curves_data(db: Session, timeframe: str = "1h"):
 
 
 manager = ConnectionManager()
+
+
+async def send_asset_curve_update(account_id: int, timeframe: str = "1h"):
+    """Send only asset curve data to clients for a specific account"""
+    db = SessionLocal()
+    try:
+        all_asset_curves = get_all_asset_curves_data(db, timeframe)
+
+        # Send to all connected clients for this account
+        await manager.send_to_account(account_id, {
+            "type": "asset_curve_refresh",
+            "timeframe": timeframe,
+            "all_asset_curves": all_asset_curves
+        })
+    except Exception as e:
+        logging.error(f"Failed to send asset curve update: {e}")
+    finally:
+        db.close()
 
 
 async def _send_snapshot_optimized(db: Session, account_id: int):
@@ -227,14 +245,8 @@ async def _send_snapshot_optimized(db: Session, account_id: int):
         "timestamp": datetime.now().timestamp()
     }
     
-    # Only include expensive asset curve data every 60 seconds
-    current_second = int(datetime.now().timestamp()) % 60
-    if current_second < 10:  # First 10 seconds of each minute
-        try:
-            response_data["all_asset_curves"] = get_all_asset_curves_data(db, "1h")
-            response_data["type"] = "snapshot_full"  # Indicate this includes full data
-        except Exception as e:
-            logger.error(f"Failed to get asset curves: {e}")
+    # Asset curves are now sent separately via get_asset_curves message
+    # No longer included in optimized snapshots for performance
 
     if price_error_message:
         response_data["warning"] = {
@@ -299,7 +311,7 @@ async def _send_snapshot(db: Session, account_id: int):
             "market_value": (float(price) * float(p.quantity)) if price is not None else None,
         })
 
-    # Prepare response data
+    # Prepare response data (without asset curves for performance)
     response_data = {
         "type": "snapshot",
         "overview": overview,
@@ -352,7 +364,6 @@ async def _send_snapshot(db: Session, account_id: int):
             }
             for d in ai_decisions
         ],
-        "all_asset_curves": get_all_asset_curves_data(db, "1h"),
     }
 
     if price_error_message:
@@ -415,11 +426,13 @@ async def websocket_endpoint(websocket: WebSocket):
                     # Send bootstrap confirmation with account info
                     try:
                         await manager.send_to_account(account_id, {
-                            "type": "bootstrap_ok", 
+                            "type": "bootstrap_ok",
                             "user": {"id": user.id, "username": user.username},
                             "account": {"id": account.id, "name": account.name, "user_id": account.user_id}
                         })
                         await _send_snapshot(db, account_id)
+                        # Send initial asset curve data
+                        await send_asset_curve_update(account_id, "1h")
                     except Exception as e:
                         logging.error(f"Failed to send bootstrap response: {e}")
                         break
@@ -499,9 +512,18 @@ async def websocket_endpoint(websocket: WebSocket):
                         }
                     })
                     await _send_snapshot(db, account_id)
+                    # Also send asset curve data for the new account
+                    await send_asset_curve_update(account_id, "1h")
                 elif kind == "get_snapshot":
                     if account_id is not None:
                         await _send_snapshot(db, account_id)
+                elif kind == "get_asset_curves":
+                    # New dedicated message type for requesting asset curve updates
+                    if account_id is not None:
+                        timeframe = msg.get("timeframe", "1h")
+                        if timeframe not in ["5m", "1h", "1d"]:
+                            timeframe = "1h"
+                        await send_asset_curve_update(account_id, timeframe)
                 elif kind == "get_asset_curve":
                     # Get asset curve data with specific timeframe
                     timeframe = msg.get("timeframe", "1h")
@@ -585,6 +607,8 @@ async def websocket_endpoint(websocket: WebSocket):
                         # Send appropriate response based on execution status
                         if executed:
                             await manager.send_to_account(account_id, {"type": "order_filled", "order_id": order.id})
+                            # Trigger asset curve refresh after successful order execution
+                            await send_asset_curve_update(account_id, "1h")
                         else:
                             await manager.send_to_account(account_id, {"type": "order_pending", "order_id": order.id})
 
