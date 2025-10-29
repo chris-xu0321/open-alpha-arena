@@ -185,19 +185,30 @@ def place_ai_driven_crypto_order(max_ratio: float = 0.2) -> None:
                         .filter(Position.account_id == account.id, Position.symbol == symbol, Position.market == "CRYPTO")
                         .first()
                     )
-                    
+
                     if not position or float(position.available_quantity) <= 0:
                         logger.info(f"No position available to SELL for {symbol} for {account.name}, skipping")
                         # Save decision with execution failure
                         save_ai_decision(db, account, decision, portfolio, executed=False)
                         continue
-                    
-                    available_quantity = int(position.available_quantity)
-                    quantity = max(1, int(available_quantity * target_portion))
-                    
+
+                    # For crypto, use float to support fractional quantities
+                    available_quantity = float(position.available_quantity)
+                    quantity = available_quantity * target_portion
+
+                    # Round to reasonable precision (6 decimal places for crypto)
+                    quantity = round(quantity, 6)
+
+                    # Ensure we don't try to sell more than we have
                     if quantity > available_quantity:
                         quantity = available_quantity
-                    
+
+                    # Validate minimum quantity
+                    if quantity <= 0:
+                        logger.info(f"Calculated SELL quantity <= 0 for {symbol} for {account.name}, skipping")
+                        save_ai_decision(db, account, decision, portfolio, executed=False)
+                        continue
+
                     side = "SELL"
                 
                 else:

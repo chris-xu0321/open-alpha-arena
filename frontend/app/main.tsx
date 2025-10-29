@@ -79,30 +79,30 @@ function App() {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'get_snapshot' }))
 
-      // Reset the 5-minute fallback timer
+      // Reset the 1-minute fallback timer
       if (refreshTimerRef.current) {
         clearTimeout(refreshTimerRef.current)
       }
       refreshTimerRef.current = setTimeout(() => {
-        console.log('5-minute fallback refresh triggered')
+        console.log('1-minute fallback refresh triggered')
         requestSnapshot()
-      }, 300000) // 5 minutes = 300,000ms
+      }, 60000) // 1 minute = 60,000ms
     }
   }
 
-  // Helper function to request asset curve update and reset 5-minute chart timer
+  // Helper function to request asset curve update and reset 1-minute chart timer
   const requestAssetCurveUpdate = () => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'get_asset_curves', timeframe: '1h' }))
 
-      // Reset the 5-minute chart refresh timer
+      // Reset the 1-minute chart refresh timer
       if (chartRefreshTimerRef.current) {
         clearTimeout(chartRefreshTimerRef.current)
       }
       chartRefreshTimerRef.current = setTimeout(() => {
-        console.log('5-minute chart refresh triggered')
+        console.log('1-minute chart refresh triggered')
         requestAssetCurveUpdate()
-      }, 300000) // 5 minutes = 300,000ms
+      }, 60000) // 1 minute = 60,000ms
     }
   }
 

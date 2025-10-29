@@ -27,8 +27,8 @@ class ConnectionManager:
 
     def register(self, account_id: int, websocket: WebSocket):
         self.active_connections.setdefault(account_id, set()).add(websocket)
-        # Add scheduled snapshot task for new account (5 minutes)
-        add_account_snapshot_job(account_id, interval_seconds=300)
+        # Add scheduled snapshot task for new account (1 minute)
+        add_account_snapshot_job(account_id, interval_seconds=60)
 
     def unregister(self, account_id: int, websocket: WebSocket):
         if account_id in self.active_connections:
